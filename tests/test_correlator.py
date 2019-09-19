@@ -7,7 +7,6 @@ import pytest
 import src.correlator as correlator
 
 
-
 def main():
 
     test_BaseTimes()
@@ -15,11 +14,12 @@ def main():
 
 
 def test_main():
+    """Test the main function."""
     correlator.main()
 
 
 def test_BaseTimes():
-
+    """Test correlator.BaseTimes class."""
     tdata = range(100)
     tmin = 1
     tmax = 50
@@ -65,7 +65,7 @@ def test_BaseTimes():
 
 
 def test_NPoint():
-
+    """Test correlator.TwoPoint and correlator.ThreePoint class."""
     basedir = '/Users/wijay/GitHub/lqcd_analysis/data/'
     h5fname = os.path.join(basedir, 'example_data.hdf5')
     data = read_example_data(h5fname)
@@ -94,9 +94,9 @@ def test_NPoint():
         "Invalid mass"
     assert c2_src.mass_avg > 0,\
         "Invalid mass from averaged correlator"
-    
+
     # c2.__setitem__
-    c2_src[0] = 1.0 
+    c2_src[0] = 1.0
 
     # Figures
     _ = c2_src.plot_corr(avg=False)
@@ -160,7 +160,7 @@ def test_NPoint():
 
     # c3.__setitem__ and c3.__get__item
     c3[13] = c3[14]
-    
+
     # c3.__iter__
     for key in c3:
         pass
