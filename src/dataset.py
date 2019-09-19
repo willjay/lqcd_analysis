@@ -12,6 +12,7 @@ from . import shrink
 from . import correlator
 from . import visualize
 
+Tags = collections.namedtuple('Tags', ['src', 'snk'])
 
 def main():
     """Run the main function."""
@@ -282,7 +283,6 @@ class FormFactorDataset(object):
     """
     def __init__(self, ds, nt=None, noise_threshy=0.03):
 
-        Tags = collections.namedtuple('Tags', ['src','snk'])
         self._tags = Tags(src='light-light', snk='heavy-light')
         self.c2 = {}
         for tag in self._tags:
