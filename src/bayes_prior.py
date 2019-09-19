@@ -92,7 +92,7 @@ class BasePrior(object):
     def __repr__(self):
         string = '{'
         str_tmp = []
-        for key, val in self.iteritems():
+        for key, val in self.items():
             str_tmp.append("{0} : {1},".format(key.__repr__(), val.__repr__()))
         string += '\n'.join(str_tmp)
         string += '}'
@@ -101,14 +101,14 @@ class BasePrior(object):
     def __str__(self):
         string = '{'
         str_tmp = []
-        for key, val in self.iteritems():
+        for key, val in self.items():
             str_tmp.append("{0} : {1},".format(key.__str__(), val.__str__()))
         string += '\n'.join(str_tmp)
         string += '}'
         return string
 
-    def iteritems(self):
-        """Overrides iteritems to handle 'logs' gracefully."""
+    def items(self):
+        """Overrides items to handle 'logs' gracefully."""
         for key in self.keys():
             yield key, self.__getitem__(key)
 
@@ -120,16 +120,30 @@ class BasePrior(object):
                 yield key
 
     def keys(self):
-        """Overrides keys to handle 'logs' gracefully."""
+        """Override keys to handle 'logs' gracefully."""
         if self.extend:
             return self._keys()
         return self.dict.keys()
 
     def values(self):
-        """Overrides values to handle 'logs' gracefully."""
+        """Override values to handle 'logs' gracefully."""
         for key in self.keys():
             yield self.__getitem__(key)
 
+    def update(self, update_with, width=None):
+        """Update keys in prior with dict 'update_with'."""
+        keys = self.keys()
+        for key in update_with:
+            if key in keys:
+                value = update_with[key]
+                if width:
+                    value = gv.gvar(gv.mean(value), width)
+                self.__setitem__(key, value)
+
+    @property
+    def p0(self):
+        """Get central values for initial guesses"""
+        return {key: gv.mean(val) for key, val in self.items()}
 
 class MesonPrior(BasePrior):
     """
@@ -232,14 +246,9 @@ class FormFactorPrior(BasePrior):
             ds = {}
         self.positive_ff = positive_ff
         FormFactorPrior._verify_tags(nstates.keys())
-        super(
-            FormFactorPrior,
-            self). __init__(
-            FormFactorPrior._build(
-                nstates,
-                ds,
-                positive_ff),
-            **kwargs)
+        super(FormFactorPrior, self).__init__(
+                FormFactorPrior._build(nstates, ds, positive_ff), **kwargs
+            )
 
     @staticmethod
     def _verify_tags(tags):
@@ -281,7 +290,7 @@ class FormFactorPrior(BasePrior):
                 ffit = None
             # Load MesonPrior entries locally
             for key, value in MesonPrior(
-                    n, no, tag=tag, ffit=ffit).iteritems():
+                    n, no, tag=tag, ffit=ffit).items():
                 prior[key] = value
         return prior
 
