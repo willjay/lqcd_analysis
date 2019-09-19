@@ -139,8 +139,9 @@ class FastFit(object):
 
     def __str__(self):
         return (
+            "FastFit("
             "E: {} ampl: {} chi2/dof [dof]: {:.1f} {:.1f} [{}] "
-            "Q: {:.1f} {:.1f}"
+            "Q: {:.1f} {:.1f})"
         ).format(
             self.E, self.ampl, self.E.chi2 / self.E.dof,
             self.ampl.chi2 / self.ampl.dof, self.E.dof, self.E.Q, self.ampl.Q,
