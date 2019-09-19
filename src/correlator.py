@@ -13,8 +13,7 @@ from . import visualize
 
 
 def main():
-    """Run main function."""
-    print("Modulel for handling correlation functions.")
+    pass
 
 
 def effective_mass(data):
@@ -28,6 +27,7 @@ def effective_mass(data):
     backward-propagating states. It also work without modification both for
     Cosh-like and Sinh-like correlators.
     """
+    # TODO: Handle possible "RuntimeWarning: invalid value encountered in sqrt"
     return np.arccosh((data[2:] + data[:-2]) / (2.0 * data[1:-1]))
 
 
@@ -35,7 +35,7 @@ def _infer_tmax(ydata, noise_threshy):
     """Infer the maximum time with noise-to-signal below a threshold."""
     good = gv.sdev(ydata) / gv.mean(ydata) < noise_threshy
     if np.all(good):
-        tmax = None
+        tmax = len(ydata) - 1
     else:
         tmax = np.argmin(good)
     return tmax
@@ -44,21 +44,9 @@ def _infer_tmax(ydata, noise_threshy):
 class BaseTimes(object):
     """
     Basic container for holding times associated with correlation functions.
-    Args:
-        tdata:
-        tmin:
-        tmax:
-        nt:
-        tp:
-    Attributes:
-        tdata:
-        tmin:
-        tmax:
-        nt:
-        tp:
     """
     def __init__(self, tdata, tmin=5, tmax=None, nt=None, tp=None):
-        self.tdata = tdata
+        self.tdata = np.asarray(tdata)
         if tmin < 0:
             raise ValueError('bad tmin')
         self.tmin = tmin
@@ -76,7 +64,7 @@ class BaseTimes(object):
             self.nt = nt
 
         if tp is None:
-            self.tp = nt
+            self.tp = self.nt
         else:
             self.tp = tp
 
@@ -84,6 +72,10 @@ class BaseTimes(object):
     def tfit(self):
         """Get fit times."""
         return self.tdata[self.tmin:self.tmax]
+
+    def __str__(self):
+        return "BaseTimes(tmin={0},tmax={1},nt={2},tp={3})".\
+            format(self.tmin, self.tmax, self.nt, self.tp)
 
 
 class TwoPoint(object):
@@ -113,7 +105,7 @@ class TwoPoint(object):
         return fastfit.FastFit(
             data=self.avg()[:self.times.tmax],
             tp=self.times.tp,
-            tmin=self.times.tmin)
+            tmin=self.times.tmin).E
 
     def meff(self, avg=False):
         """Compute the effective mass of the correlator."""
@@ -151,15 +143,22 @@ class TwoPoint(object):
     def __len__(self):
         return len(self.ydata)
 
+    def __str__(self):
+        return "TwoPoint[tag='{}', tmin={}, tmax={}, nt={}, mass={}]".\
+            format(self.tag, self.times.tmin, self.times.tmax, self.times.nt,
+                   self.mass)
+
     def plot_corr(self, ax=None, avg=False):
         """Plot the correlator on a log scale."""
         if ax is None:
             _, ax = plt.subplots(1, figsize=(10, 5))
         if avg:
             y = self.avg()
+            x = self.times.tfit[1:-1]
+
         else:
             y = self.ydata
-        x = self.times.tdata
+            x = self.times.tdata
         visualize.errorbar(ax, x, y, fmt='.', marker='o')
         ax.set_yscale('log')
         return ax
@@ -168,17 +167,14 @@ class TwoPoint(object):
         """Plot the effective mass of the correlator."""
         if ax is None:
             _, ax = plt.subplots(1)
-        try:
-            if avg:
-                y = effective_mass(self.avg())
-                x = self.times.tdata[1:self.times.tmax - 1]
-                visualize.errorbar(ax, x, y, **kwargs)
-            else:
-                y = effective_mass(self.ydata)
-                x = self.times.tdata[1:-1]
-                visualize.errorbar(ax, x, y, **kwargs)
-        except ZeroDivisionError:
-            logger.warning("ZeroDivisionError in plot_meff. Skipping.")
+        if avg:
+            y = effective_mass(self.avg())
+            x = self.times.tfit[2:-2]
+            visualize.errorbar(ax, x, y, **kwargs)
+        else:
+            y = effective_mass(self.ydata)
+            x = self.times.tdata[1:-1]
+            visualize.errorbar(ax, x, y, **kwargs)
         return ax
 
 
@@ -189,9 +185,13 @@ class ThreePoint(object):
         self.ydict = ydict
         self._verify_ydict()
         self.noise_threshy = noise_threshy
-        tmp = ydict.values()[0]  # safe since we verified ydict
+        tmp = list(self.values())[0]  # safe since we verified ydict
         self.times = BaseTimes(tdata=np.arange(len(tmp)))
         self.times.tmax = _infer_tmax(tmp, noise_threshy)
+
+    def __str__(self):
+        return "ThreePoint[tag='{}', tmin={}, tmax={}, nt={}]".\
+            format(self.tag, self.times.tmin, self.times.tmax, self.times.nt)
 
     def _verify_ydict(self):
         for t_sink in self.ydict:
