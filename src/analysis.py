@@ -10,7 +10,9 @@ from . import correlator
 from . import dataset
 from . import bayes_prior
 
-Nstates = collections.namedtuple('NStates', ['n', 'no', 'm', 'mo'])
+Nstates = collections.namedtuple(
+    'NStates', ['n', 'no', 'm', 'mo'], defaults=(1,0,0,0)
+)
 
 def count_nstates(params, key_map=None, tags=None):
     """
@@ -47,10 +49,10 @@ def get_two_point_model(two_point, osc=True):
 
     model = cf.Corr2(
         datatag=tag,
-        tp=two_point.tp,
-        tmin=two_point.tmin,
-        tmax=two_point.tmax,
-        tdata=two_point.tdata,
+        tp=two_point.times.tp,
+        tmin=two_point.times.tmin,
+        tmax=two_point.times.tmax,
+        tdata=two_point.times.tdata,
         a=a_pnames,
         b=b_pnames,
         dE=dE_pnames,
@@ -59,18 +61,13 @@ def get_two_point_model(two_point, osc=True):
     return model
 
 
-def get_three_point_model(ds, t_sink, nstates, tags=None):
+def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None):
     if tags is None:
-        tags = Tags(src='light-light', snk='heavy-light')
+        tags = dataset.Tags(src='light-light', snk='heavy-light')
     src = tags.src
     snk = tags.snk
 
-    tmin = ds[tags.src].tmin
-    tmax = t_sink - ds[tags.snk].tmin
-    tfit = np.arange(tmin, tmax)
-
     if tfit.size:
-        tdata = ds.c3.tdata
         a_pnames = (f'{src}:a', f'{src}:ao')
         b_pnames = (f'{snk}:a', f'{snk}:ao')
         dEa_pnames = (f'{src}:dE', f'{src}:dEo')
@@ -93,7 +90,7 @@ def get_three_point_model(ds, t_sink, nstates, tags=None):
             voo = None
 
         model = cf.Corr3(
-            datatag=t_sink, T=t_sink, tdata=tdata, tfit=tfit,
+            datatag=t_snk, T=t_snk, tdata=tdata, tfit=tfit,
             # Amplitudes in src 2-pt function
             a=a_pnames,
             # Amplitudes in snk 2-pt function
@@ -125,13 +122,11 @@ def get_three_point_model(ds, t_sink, nstates, tags=None):
 def get_model(ds, tag, nstates):
 
     if isinstance(ds[tag], correlator.TwoPoint):
-        if nstates.no:
-            osc = True
-        else:
-            osc = False
+        osc = bool(nstates.no)
         return get_two_point_model(ds[tag], osc)
     if isinstance(tag, int):
-        return get_three_point_model(ds, tag, nstates)
+        t_snk = tag
+        return get_three_point_model(t_snk, ds.tfit[t_snk], ds.tdata, nstates)
     raise TypeError("get_model() needs TwoPoint or ThreePoint objects.")
 
 
@@ -142,11 +137,10 @@ class TwoPointAnalysis(object):
         c2: TwoPoint object
     """
     def __init__(self, c2):
-        
         self.tag = c2.tag
         self.c2 = c2
 
-    def run_fit(self, nstates=(1,0), prior=None, **fitter_kwargs):
+    def run_fit(self, nstates=Nstates(1,0), prior=None, **fitter_kwargs):
         """
         Run the fit.
         Args:
@@ -155,15 +149,15 @@ class TwoPointAnalysis(object):
             prior: BasicPrior object. Default is None, for which the fitter
                 tries to constuct a prior itself.
         """
-        n_decay, n_osc = nstates
+
         if prior is None:
             prior = bayes_prior.MesonPrior(
-                n_decay, n_osc,
-                amps=['a','ao'], tag=self.c2.tag, ffit=self.c2.ffit,
+                nstates.n, nstates.no, amps=['a','ao'],
+                tag=self.tag, ffit=self.c2.fastfit,
                 extend=True
             )
 
-        model = get_two_point_model(self.c2, bool(n_osc))
+        model = get_two_point_model(self.c2, bool(nstates.no))
         fitter = cf.CorrFitter(models=model)
         data = {self.tag : self.c2}
         fit = fitter.lsqfit(
@@ -176,16 +170,23 @@ class TwoPointAnalysis(object):
 
 class FormFactorAnalysis(object):
 
-    def __init__(self, ds, times, nstates, positive_ff, **fitter_kwargs):
+    def __init__(self, ds, positive_ff=True):
 
         self.ds = ds
-        self.times = times
-        self.nstates = nstates
+        self.positive_ff = positive_ff
+
+    def run_fits(self, nstates, tmin_src=None, tmin_snk=None, **fitter_kwargs):    
+        """Run the fits."""
+        self.prior = bayes_prior.FormFactorPrior(
+            nstates, self.ds, positive_ff=self.positive_ff)
+        if tmin_src is not None:
+            ds.c2_src.times.tmin = tmin_src
+        if tmin_snk is not None:
+            ds.c2_snk.times.tmin = tmin_snk
         
         # Run fits
-        self.prior = bayes_prior.FormFactorPrior(nstates, ds=ds, positive_ff=True)
         self.fits = {}
-        self.fit_two_point()
+        self.fit_two_point(nstates=nstates)
         self.fitter = None  # Set in fit_form_factor
         self.fit_form_factor()
 
@@ -193,50 +194,50 @@ class FormFactorAnalysis(object):
         self.stats = {}
         self.collect_statistics()
 
-
+        assert False, "Stop here"
 
 
         self.r_guess = self.prior.r_guess
 
 
-        def convet_vnn_to_r(self):
+    def convet_vnn_to_r(self):
 
-            # Convert results about V[0,0] into the ratio "Rbar"
-            # which is supposed to deliver the form factor
-    #         m_pi    = self.prior.get_gaussian('light-light:dE')[0]
-    #         v_guess = self.prior.get_gaussian('Vnn')[0,0]
-    #         v_guess = self.prior['Vnn'][0,0]
-    #         self.r_guess = v_guess*gv.mean(np.sqrt(2.0*m_pi))
+        # Convert results about V[0,0] into the ratio "Rbar"
+        # which is supposed to deliver the form factor
+#         m_pi    = self.prior.get_gaussian('light-light:dE')[0]
+#         v_guess = self.prior.get_gaussian('Vnn')[0,0]
+#         v_guess = self.prior['Vnn'][0,0]
+#         self.r_guess = v_guess*gv.mean(np.sqrt(2.0*m_pi))
 
-            if self.fits['full'] is not None:
+        if self.fits['full'] is not None:
 
-                m_pi = self.fits['full'].p['light-light:dE'][0]
-                v = self.fits['full'].p['Vnn'][0, 0]
-                self.r = v * np.sqrt(2.0 * m_pi)
+            m_pi = self.fits['full'].p['light-light:dE'][0]
+            v = self.fits['full'].p['Vnn'][0, 0]
+            self.r = v * np.sqrt(2.0 * m_pi)
 
-                # Is the fit sane?
-                # Simple check: does the fit lie "above" the guess?
-                self.is_sane = np.abs(
-                    gv.mean(
-                        self.r)) >= np.abs(
-                    gv.mean(
-                        self.ds.r_guess))
-                m_ll = self.fits['full'].p['light-light:dE'][0]
-                m_hl = self.fits['full'].p['heavy-light:dE'][0]
-                self.ds_fit = self.build_fit_dataset()
-                if self.ds_fit is not None:
-                    self.ds_fit.update(m_ll=m_ll, m_hl=m_hl)
+            # Is the fit sane?
+            # Simple check: does the fit lie "above" the guess?
+            self.is_sane = np.abs(
+                gv.mean(
+                    self.r)) >= np.abs(
+                gv.mean(
+                    self.ds.r_guess))
+            m_ll = self.fits['full'].p['light-light:dE'][0]
+            m_hl = self.fits['full'].p['heavy-light:dE'][0]
+            self.ds_fit = self.build_fit_dataset()
+            if self.ds_fit is not None:
+                self.ds_fit.update(m_ll=m_ll, m_hl=m_hl)
 
-            else:
-                self.is_sane = False
+        else:
+            self.is_sane = False
 
-    def fit_two_point(self, nstates, **fitter_kwargs):
+    def fit_two_point(self, **fitter_kwargs):
         """Run the fits of two-point functions."""
         for tag in self.ds.c2:
             # TODO: handle possible re-running if fit fails initially
             # In the other code, I reset the priors on dEo to match dE
             fit = TwoPointAnalysis(self.ds.c2[tag]).\
-                run_fit(nstates, **fitter_kwargs)
+                run_fit(self.nstates, **fitter_kwargs)
             if fit is None:
                 logger.warning('[-] Warning: {0} fit failed'.format(tag))
             else:
@@ -245,13 +246,12 @@ class FormFactorAnalysis(object):
 
     def fit_form_factor(self, **fitter_kwargs):
         """Run the joint fit of 2- and 3-point functions for form factor."""
-        models = [get_model(tag) for tag in self.ds]
+        models = [get_model(self.ds, tag, self.nstates) for tag in self.ds]
         models = [model for model in models if model is not None]
         if len(models) >= 3:
-            prior = self.prior
-            prior.positive_params()
             fitter = cf.CorrFitter(models=models)
-            fit = fitter.lsqfit(data=self.ds, prior=prior, **fitter_kwargs)
+            fit = fitter.lsqfit(
+                data=self.ds, prior=self.prior, **fitter_kwargs)
             
         else:
             fit = None

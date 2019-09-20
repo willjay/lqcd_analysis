@@ -207,7 +207,7 @@ class MesonPrior(BasePrior):
                 raise ValueError(msg)
 
         # Convert to arrays
-        keys = prior.keys()
+        keys = list(prior.keys())
         if tag is None:
             # Just convert to arrays
             for key in keys:
