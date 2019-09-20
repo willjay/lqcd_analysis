@@ -4,6 +4,7 @@ build_dataset
 FormFactorDataset
 """
 import collections
+import functools
 import numpy as np
 import gvar as gv
 import pylab as plt
@@ -76,8 +77,8 @@ def nonlinear_shrink(samples, n_eff, verbose=False):
         array, the shrunken correlation matrix
     """
     if verbose:
-        print("[+] Direct nonlinear correlation matrix shrinkage.")
-        print("Using effective numer of samples n={0}".format(n_eff))
+        logger.info("[+] Direct nonlinear correlation matrix shrinkage.")
+        logger.info("Using effective numer of samples n={0}".format(n_eff))
     corr = gv.evalcorr(gv.dataset.avg_data(samples))
     # Decompose into eigenvalues
     vals, vecs = np.linalg.eig(corr)  # (eigvals, eigvecs)
@@ -184,7 +185,7 @@ def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None):
         return gv.gvar(mean, cov)
 
     tmp = {}
-    for key, value in data_ind.iteritems():
+    for key, value in data_ind.items():
         try:
             if (not isinstance(key, int)) and do_fold:
                 # Fold two-point functions
@@ -235,7 +236,7 @@ def normalization(ns, momentum, current, energy_src, m_snk):
     # needs the rest mass of the light meson. So boost it back to rest frame!
     # Note that the heavy meson is already in its rest frame.
     if current in ['T14-V4', 'T24-V4', 'T34-V4']:
-        m_src = np.sqrt(energy_src**2.0 - np.dot(p, p))
+        m_src = np.sqrt(energy_src**2.0 - np.dot(p_vec, p_vec))
         tensor_factor = (m_src + m_snk) / np.sqrt(2.0 * m_snk)
         norm *= tensor_factor
     if np.isnan(norm):
@@ -243,32 +244,6 @@ def normalization(ns, momentum, current, energy_src, m_snk):
         logger.warning(msg)
         norm = 1.0
     return norm
-
-
-class FormFactorTimes(object):
-    """ TODO: write doc """
-
-    def __init__(self, tdata, t_snks, tmin_src=1, tmin_snk=1, nt=None):
-        self.tdata = tdata
-        self.t_snks = sorted(t_snks)
-        self._verify_t_snks()
-        self.tmin_src = tmin_src
-        self.tmin_snk = tmin_snk
-        if nt is None:
-            self.nt = len(tdata)
-        else:
-            self.nt = nt
-
-    def _verify_t_snks(self):
-        """Verify that all values for t_snk are integers."""
-        for t_snk in self.t_snks:
-            if not isinstance(t_snk, int):
-                msg = 't_snk must be an integer. Found {0}'.format(t_snk)
-                raise TypeError(msg)
-
-    def tfit(self, t_snk):
-        """Get fit times associated with t_snk."""
-        return self.tdata[self.tmin_src:t_snk - self.tmin_snk]
 
 
 class FormFactorDataset(object):
@@ -281,7 +256,7 @@ class FormFactorDataset(object):
         noise_threshy: float, noise-to-signal ratio for cutting on the data.
             Default is 0.03, i.e., 3 percent.
     """
-    def __init__(self, ds, nt=None, noise_threshy=0.03):
+    def __init__(self, ds, noise_threshy=0.03):
 
         self._tags = Tags(src='light-light', snk='heavy-light')
         self.c2 = {}
@@ -290,16 +265,42 @@ class FormFactorDataset(object):
         tag = None
         self.c3 = correlator.ThreePoint(tag, ds, noise_threshy)
         self._verify_tdata()
-        tdata = self.c2[self._tags.src].times.tdata
-        t_snks = self.c3.keys()
-        self.times = FormFactorTimes(tdata, t_snks, nt=nt)
 
     def _verify_tdata(self):
-        try:
-            np.unique([len(arr) for arr in self.values()]).item()
-        except ValueError as _:
-            msg = "FormFactorDataset: values must have same length."
-            raise ValueError(msg)
+        """Verify that all correlators have matching tdata."""
+        tdata = [
+            self.c2_src.times.tdata,
+            self.c2_src.times.tdata,
+            self.c3.times.tdata
+        ]
+        for tdata_i in tdata:
+            if not np.all(tdata_i == tdata[0]):
+                raise ValueError('tdata does not match across correlators')
+
+    @property
+    def _tdata(self):
+        """Get tdata from c3, verifying that it is safe to do so."""
+        self._verify_tdata()
+        return self.c3.times.tdata
+
+    @property
+    def tfit(self):
+        """
+        Compute tfit: restrict to constant separation from src/snk operators.
+        """
+        tfit = {}
+        for tag in self._tags:
+            tfit[tag] = np.arange(self.c2[tag].times.tmin,
+                                  self.c2[tag].times.tmax + 1)
+        for t_snk in self.c3.t_snks:
+            tfit[t_snk] = np.arange(self.c2[self._tags.src].times.tmin,
+                                    t_snk - self.c2[self._tags.snk].times.tmin)
+        return tfit
+
+    @property
+    def t_snks(self):
+        """Fetch the sink times 't_snk' from the ThreePoint function."""
+        return list(self.c3.t_snks)
 
     @property
     def c2_src(self):
@@ -356,6 +357,7 @@ class FormFactorDataset(object):
         """Compute the ratio of smeared two- and three-point correlators."""
         return self._ratio(avg=True)
 
+    @functools.lru_cache()
     def _ratio(self, avg=False):
         """
         Compute a useful ratio of correlation functions.
@@ -370,27 +372,28 @@ class FormFactorDataset(object):
         c2_snk = self.c2_snk
         m_src = self.m_src
         m_snk = self.m_snk
+        t = self._tdata
         if avg:
             # Switch to averaged versions of all the quantites
             c3 = self.c3bar
-            c2_src = c2_src.avg()
-            c2_snk = c2_snk.avg()
             m_src = c2_src.mass_avg
             m_snk = c2_snk.mass_avg
-        # Make sure not to overstep available times
-        possible_ts = [val.times.tdata for val in self.values()]
-        t = possible_ts[np.argmin([len(tj) for tj in possible_ts])]
+            c2_src = c2_src.avg()
+            c2_snk = c2_snk.avg()
         # Compute the ratio
         r = {}
-        for t_snk, c3_t_snk in c3.iteritems():
-            r[t_snk] = c3_t_snk[t] * np.sqrt(2.0 * m_src)
-            r[t_snk] /= c2_src[t] * c2_snk[t_snk - t]\
-                * np.exp(-m_src*t) * np.exp(-m_snk * (t_snk-t))
+        for t_snk in c3:
+            denom = np.sqrt(
+                c2_src[t] * c2_snk[t_snk - t] *
+                np.exp(-m_src * t) * np.exp(-m_snk * (t_snk - t))
+            )
+            tmax = min(len(c3[t_snk]), max(t))
+            r[t_snk] = c3[t_snk][:tmax] * np.sqrt(2 * m_src) / denom[:tmax]
         return r
 
     def keys(self):
         """Get the keys of the two- and three-point correlators."""
-        return self.c2.keys() + self.c3.keys()
+        return list(self.c2.keys()) + list(self.c3.keys())
 
     def values(self):
         """Get the values of the two- and three-point correlators."""
@@ -427,21 +430,27 @@ class FormFactorDataset(object):
         if ax is None:
             _, ax = plt.subplots(1, figsize=(10, 5))
         colors = sns.color_palette()
-        # Source two-point function (usually a kaon or pion)
-        visualize.plot(ax, y=self.c2_src[:], color=colors[0], fmt='.')
-        visualize.plot(ax, y=self.c2bar_src[:], color=colors[0])
-        # Sink two-point function (usually a B- or D-meson)
-        visualize.plot(ax, y=self.c2_snk[:], color=colors[1], fmt='.')
-        visualize.plot(ax, y=self.c2bar_snk[:], color=colors[1])
+        # Two-point functions
+        for color, tag in zip(colors, self._tags):
+            # Raw data, with sawtooth oscillations
+            x = self.c2[tag].times.tdata
+            y = self.c2[tag]
+            visualize.errorbar(ax, x, y, color=colors[0], fmt='.')
+            # Averaged data, with suppressed oscillations
+            x = self.c2[tag].times.tdata
+            y = self.c2[tag].avg()
+            visualize.errorbar(ax, x, y, color=colors[0], fmt='-')
         # Three-point functions
         c3 = self.c3
         c3bar = self.c3bar
-        for count, t_snk in enumerate(c3):
+        for color, t_snk in zip(colors[2:], self.t_snks):
             y = c3[t_snk][:]
-            visualize.plot(ax, y, fmt='.', color=colors[2 + count])
+            x = c3.times.tdata
+            visualize.errorbar(ax, x, y, fmt='.', color=color)
             if t_snk in c3bar:
                 y = c3bar[t_snk][:]
-                visualize.plot(ax, y, color=colors[2 + count])
+                x = c3.times.tdata
+                visualize.errorbar(ax, x, y, fmt='-', color=color)
 
         ax.set_yscale('log')
         ax.set_xlabel('t')
@@ -457,7 +466,7 @@ class FormFactorDataset(object):
         # TODO: decide how we want to handle normalizations
         # norm = self.normalization()
         if tmax is None:
-            tmax = max(self.times.t_snks)
+            tmax = max(self.t_snks)
         t = np.arange(tmin, tmax)
         r = self.r
         rbar = self.rbar

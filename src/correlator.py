@@ -73,6 +73,12 @@ class BaseTimes(object):
         """Get fit times."""
         return self.tdata[self.tmin:self.tmax]
 
+    @property
+    def tdata_avg(self):
+        """Fetch tdata safe for use with averaging functions."""
+        # return np.arange(self.tmin, self.tmax - 2)
+        return np.arange(len(self.tdata) - 2)
+
     def __str__(self):
         return "BaseTimes(tmin={0},tmax={1},nt={2},tp={3})".\
             format(self.tmin, self.tmax, self.nt, self.tp)
@@ -126,13 +132,18 @@ class TwoPoint(object):
         if mass < 0:
             mass = self.fastfit.E
         c2 = self.ydata
-        t = np.arange(self.times.tmin, self.times.tmax - 2)
-        c2bar = c2[t] / np.exp(-mass * t)
-        c2bar += 2.0 * c2[t + 1] / np.exp(-mass * (t + 1))
-        c2bar += c2[t + 2] / np.exp(-mass * (t + 2))
-        c2bar *= np.exp(-mass * t)
-        c2bar /= 4.0
-        return c2bar
+        tmax = len(c2)
+        c2_tp1s = np.roll(self.ydata, -1, axis=0)
+        c2_tp2s = np.roll(self.ydata, -2, axis=0)
+        # pylint: disable=protected-access
+        c2bar = np.empty((tmax,), dtype=gv._gvarcore.GVar)
+        # pylint: enable=protected-access
+        for t in range(tmax):
+            c2bar[t] = c2[t] / np.exp(-mass * t)
+            c2bar[t] += 2 * c2_tp1s[t] / np.exp(-mass * (t + 1))
+            c2bar[t] += c2_tp2s[t] / np.exp(-mass * (t + 2))
+            c2bar[t] *= np.exp(-mass * t)
+        return c2bar / 4.
 
     def __getitem__(self, key):
         return self.ydata[key]
@@ -148,7 +159,7 @@ class TwoPoint(object):
             format(self.tag, self.times.tmin, self.times.tmax, self.times.nt,
                    self.mass)
 
-    def plot_corr(self, ax=None, avg=False):
+    def plot_corr(self, ax=None, avg=False, **kwargs):
         """Plot the correlator on a log scale."""
         if ax is None:
             _, ax = plt.subplots(1, figsize=(10, 5))
@@ -159,7 +170,7 @@ class TwoPoint(object):
         else:
             y = self.ydata
             x = self.times.tdata
-        visualize.errorbar(ax, x, y, fmt='.', marker='o')
+        visualize.errorbar(ax, x, y, **kwargs)
         ax.set_yscale('log')
         return ax
 
@@ -190,8 +201,9 @@ class ThreePoint(object):
         self.times.tmax = _infer_tmax(tmp, noise_threshy)
 
     def __str__(self):
-        return "ThreePoint[tag='{}', tmin={}, tmax={}, nt={}]".\
-            format(self.tag, self.times.tmin, self.times.tmax, self.times.nt)
+        return "ThreePoint[tag='{}', tmin={}, tmax={}, nt={}, t_snks={}]".\
+            format(self.tag, self.times.tmin, self.times.tmax,
+                   self.times.nt, sorted(list(self.t_snks)))
 
     def _verify_ydict(self):
         for t_sink in self.ydict:
@@ -215,31 +227,49 @@ class ThreePoint(object):
         Returns:
             c3bar: dict of arrays with the time-slice-averaged correlators
         """
+        nt = self.times.nt
         c3bar = {}
-        t = np.arange(self.times.tmin, self.times.tmax - 2)
-        # Note t_snk
-        for t_snk in self.ydict:
-            if t_snk + 1 not in self.ydict:
+        t_snks = list(self.t_snks)
+        # pylint: disable=invalid-name,protected-access
+        for T in t_snks:
+            if T+1 not in t_snks:
                 # Need T and T+1, skip if missing
                 continue
-            c3 = self.ydict[t_snk]   # C(t,  t_snk)
-            c3_t_snk_p1 = self.ydict[t_snk + 1]  # C(t,  t_snk+1)
-
-            c3bar[t_snk] = c3[t] * np.exp(-m_snk * (t_snk - t)) / \
-                np.exp(-m_src * t)
-            c3bar[t_snk] += c3_t_snk_p1[t] / \
-                (np.exp(-m_src * t) * np.exp(-m_snk * (t_snk + 1 - t)))
-            c3bar[t_snk] += 2. * c3[t + 1] /\
-                (np.exp(-m_src * (t + 1)) * np.exp(-m_snk * (t_snk - (t + 1))))
-            c3bar[t_snk] += 2. * c3_t_snk_p1[t + 1] /\
-                (np.exp(-m_src * (t + 1)) * np.exp(-m_snk * (t_snk - t)))
-            c3bar[t_snk] += c3[t + 2] /\
-                (np.exp(-m_src * (t + 2)) * np.exp(-m_snk * (t_snk - (t + 2))))
-            c3bar[t_snk] += c3_t_snk_p1[t + 2] /\
-                (np.exp(-m_src * (t + 2)) * np.exp(-m_snk * (t_snk - t - 1)))
-            c3bar[t_snk] *= np.exp(-m_src * t) * np.exp(-m_snk * (t_snk - t))
-            c3bar[t_snk] /= 8.
+            c3 = self.ydict[T]                        # C(t,T)
+            c3_tp1 = np.roll(c3, -1, axis=0)          # C(t+1,T)
+            c3_tp2 = np.roll(c3, -2, axis=0)          # C(t+2,T)
+            c3_Tp1 = self.ydict[T+1]                  # C(t,T+1)
+            c3_Tp1_tp1 = np.roll(c3_Tp1, -1, axis=0)  # C(t+1,T+1)
+            c3_Tp1_tp2 = np.roll(c3_Tp1, -2, axis=0)  # C(t+2,T+1)
+            # Storage for smeared correlator
+            tmp = np.empty((nt, ), dtype=gv._gvarcore.GVar)
+            for t in range(nt):
+                try:
+                    tmp[t] = c3[t] /\
+                        (np.exp(-m_src * t) * np.exp(-m_snk * (T - t)))
+                    tmp[t] += c3_Tp1[t] /\
+                        (np.exp(-m_src * t) * np.exp(-m_snk * (T + 1 - t)))
+                    tmp[t] += 2. * c3_tp1[t] /\
+                        (np.exp(-m_src * (t + 1)) *
+                         np.exp(-m_snk * (T - (t + 1))))
+                    tmp[t] += 2. * c3_Tp1_tp1[t] /\
+                        (np.exp(-m_src * (t + 1)) * np.exp(-m_snk * (T - t)))
+                    tmp[t] += c3_tp2[t] /\
+                        (np.exp(-m_src * (t + 2)) *
+                         np.exp(-m_snk * (T - (t + 2))))
+                    tmp[t] += c3_Tp1_tp2[t] /\
+                        (np.exp(-m_src * (t + 2)) *
+                         np.exp(-m_snk * (T - t - 1)))
+                    tmp[t] *= np.exp(-m_src * t) * np.exp(-m_snk * (T - t))
+                except IndexError:
+                    tmp[t] = 0.0
+            c3bar[T] = tmp / 8.
+        # pylint: enable=invalid-name,protected-access
         return c3bar
+
+    @property
+    def t_snks(self):
+        return list(self.keys())
 
     def __getitem__(self, key):
         return self.ydict[key]
