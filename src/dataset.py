@@ -278,7 +278,7 @@ class FormFactorDataset(object):
                 raise ValueError('tdata does not match across correlators')
 
     @property
-    def _tdata(self):
+    def tdata(self):
         """Get tdata from c3, verifying that it is safe to do so."""
         self._verify_tdata()
         return self.c3.times.tdata
@@ -372,7 +372,7 @@ class FormFactorDataset(object):
         c2_snk = self.c2_snk
         m_src = self.m_src
         m_snk = self.m_snk
-        t = self._tdata
+        t = self.tdata
         if avg:
             # Switch to averaged versions of all the quantites
             c3 = self.c3bar
