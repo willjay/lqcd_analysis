@@ -418,12 +418,11 @@ class FormFactorDataset(object):
         # TODO: handle normalization
         # if normalization() < 0:
         #     factor = -1.0
-
-        maxes = []
+        plateau = float('-inf')
         for t_snk, rbar in self.rbar.items():
             local_max = max(factor * gv.mean(rbar[1:t_snk - 1]))
-            maxes.append(local_max)
-        return max(maxes)
+            plateau = max(plateau, local_max)
+        return plateau
 
     def plot_corr(self, ax=None):
         """Plot the correlation functions in the dataset."""
