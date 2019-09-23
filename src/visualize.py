@@ -2,6 +2,23 @@
 Visualization routines
 """
 import gvar as gv
+import pylab as plt
+import seaborn as sns
+
+
+def color_palette(*args, **kwargs):
+    return sns.color_palette(*args, **kwargs)
+
+
+def subplots(*args, **kwargs):
+    """
+    Wraps pylab.subplots(...)
+    TODO: fix imports
+    Backstory:
+    pylab is supposed to be deprecated (?) due to its state-machine environment
+    Related infor[https://matplotlib.org/faq/usage_faq.html]
+    """
+    return plt.subplots(*args, **kwargs)
 
 
 def plot(ax, y, **kwargs):
@@ -18,11 +35,8 @@ def errorbar(ax, x, y, bands=False, **kwargs):
     y = gv.mean(y)
     if bands:
         ax.errorbar(x=x, y=y, **kwargs)
-        if 'color' in kwargs:
-            facecolor = kwargs['color']
-        else:
-            facecolor = ax.lines[-1].get_color()
-        alpha = kwargs['alpha'] if 'alpha' in kwargs else 1.0
+        facecolor = kwargs.get('color', ax.lines[-1].get_color())
+        alpha = kwargs.get('alpha', 1.0)
         ax.fill_between(
             x,
             y - yerr,
@@ -40,10 +54,7 @@ def axhline(ax, y, alpha=None, **kwargs):
         alpha = 0.25
     mean = gv.mean(y)
     ax.axhline(mean, **kwargs)
-    if 'color' in kwargs:
-        color = kwargs['color']
-    else:
-        color = 'k'
+    color = kwargs.get('color', 'k')
     axhspan(ax, y, alpha=alpha, color=color)
     return ax
 
@@ -61,10 +72,7 @@ def axvline(ax, x, alpha=None, **kwargs):
         alpha = 0.25
     mean = gv.mean(x)
     ax.axvline(mean, **kwargs)
-    if 'color' in kwargs:
-        color = kwargs['color']
-    else:
-        color = 'k'
+    color = kwargs.get('color', 'k')
     axvspan(ax, x, alpha=alpha, color=color)
 
 

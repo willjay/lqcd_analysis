@@ -137,13 +137,16 @@ class BasePrior(object):
             if key in keys:
                 value = update_with[key]
                 if width:
-                    value = gv.gvar(gv.mean(value), width)
+                    if not hasattr(value, '__len__'):
+                        value = [value]
+                    value = [gv.gvar(gv.mean(val), width) for val in value]
                 self.__setitem__(key, value)
 
     @property
     def p0(self):
         """Get central values for initial guesses"""
         return {key: gv.mean(val) for key, val in self.items()}
+
 
 class MesonPrior(BasePrior):
     """
@@ -244,8 +247,9 @@ class FormFactorPrior(BasePrior):
     def __init__(self, nstates, ds=None, positive_ff=True, **kwargs):
         if ds is None:
             ds = {}
+        else:
+            FormFactorPrior._verify_tags(ds._tags)
         self.positive_ff = positive_ff
-        FormFactorPrior._verify_tags(nstates.keys())
         super(FormFactorPrior, self).__init__(
                 FormFactorPrior._build(nstates, ds, positive_ff), **kwargs
             )
@@ -254,10 +258,6 @@ class FormFactorPrior(BasePrior):
     def _verify_tags(tags):
         """Verify that the tags (from nstates) are supported."""
         tags = set(tags)
-        # The only possible valid tags
-        # If other pairs of tag are added in the future
-        # (like, say, ['source','sink']) additional changes
-        # are necessary below in _make_vmatrix_prior.
         valid_tags = [
             ['light-light'],
             ['heavy-light'],
@@ -267,7 +267,7 @@ class FormFactorPrior(BasePrior):
         for possibility in valid_tags:
             if tags == set(possibility):
                 return
-        raise ValueError("Invalid tags")
+        raise ValueError("Unrecognized tags in FormFactorPrior")
 
     @staticmethod
     def _build(nstates, ds, positive_ff):
@@ -281,16 +281,16 @@ class FormFactorPrior(BasePrior):
     @staticmethod
     def _make_meson_prior(nstates, ds):
         """Build prior associated with the meson two-point functions."""
+        tags = ds._tags
+        meson_priors = [
+            MesonPrior(nstates.n, nstates.no,
+                       tag=tags.src, ffit=ds.c2_src.fastfit),
+            MesonPrior(nstates.m, nstates.mo,
+                       tag=tags.snk, ffit=ds.c2_snk.fastfit),
+        ]
         prior = {}
-        for tag in nstates:
-            n, no = nstates[tag]
-            if tag in ds:
-                ffit = ds[tag].ffit
-            else:
-                ffit = None
-            # Load MesonPrior entries locally
-            for key, value in MesonPrior(
-                    n, no, tag=tag, ffit=ffit).items():
+        for meson_prior in meson_priors:
+            for key, value in meson_prior.items():
                 prior[key] = value
         return prior
 
@@ -298,19 +298,12 @@ class FormFactorPrior(BasePrior):
     def _make_vmatrix_prior(nstates, ds, positive_ff):
         """Build prior for the 'mixing matrices' Vnn, Vno, Von, and Voo."""
         mass = None
-        if len(nstates) == 1:
-            # Degenerate case with matching source and sink
-            (n, no), = nstates.values()
-            (m, mo) = (n, no)
-            tag, = nstates.keys()
-            if tag in ds:
-                mass = ds[tag].ffit.E
-        else:
-            # Only joint fits with 'light-light' and 'heavy-light' supported
-            n, no = nstates['light-light']
-            m, mo = nstates['heavy-light']
-            if 'light-light' in ds:
-                mass = ds['light-light'].ffit.E
+
+        n = nstates.n
+        no = nstates.no
+        m = nstates.m
+        mo = nstates.mo
+        mass = ds[ds._tags.src].fastfit.E
 
         # General guesses
         tmp_prior = {}

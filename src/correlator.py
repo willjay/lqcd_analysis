@@ -7,7 +7,6 @@ BaseCorrelator
 """
 import numpy as np
 import gvar as gv
-import pylab as plt
 from . import fastfit
 from . import visualize
 
@@ -33,6 +32,8 @@ def effective_mass(data):
 
 def _infer_tmax(ydata, noise_threshy):
     """Infer the maximum time with noise-to-signal below a threshold."""
+    if noise_threshy is None:
+        return len(ydata) - 1
     good = gv.sdev(ydata) / gv.mean(ydata) < noise_threshy
     if np.all(good):
         tmax = len(ydata) - 1
@@ -93,7 +94,6 @@ class TwoPoint(object):
         self.noise_threshy = noise_threshy
         self.times = BaseTimes(tdata=np.arange(len(ydata)))
         self.times.tmax = _infer_tmax(ydata, noise_threshy)
-
         # Estimate the ground-state energy and amplitude
         self.fastfit = fastfit.FastFit(
             data=self.ydata[:self.times.tmax],
@@ -162,11 +162,10 @@ class TwoPoint(object):
     def plot_corr(self, ax=None, avg=False, **kwargs):
         """Plot the correlator on a log scale."""
         if ax is None:
-            _, ax = plt.subplots(1, figsize=(10, 5))
+            _, ax = visualize.subplots(1, figsize=(10, 5))
         if avg:
             y = self.avg()
             x = self.times.tfit[1:-1]
-
         else:
             y = self.ydata
             x = self.times.tdata
@@ -177,10 +176,10 @@ class TwoPoint(object):
     def plot_meff(self, ax=None, avg=False, **kwargs):
         """Plot the effective mass of the correlator."""
         if ax is None:
-            _, ax = plt.subplots(1)
+            _, ax = visualize.subplots(1)
         if avg:
             y = effective_mass(self.avg())
-            x = self.times.tfit[2:-2]
+            x = self.times.tdata[1:-1]
             visualize.errorbar(ax, x, y, **kwargs)
         else:
             y = effective_mass(self.ydata)

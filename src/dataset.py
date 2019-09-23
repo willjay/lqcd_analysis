@@ -256,14 +256,17 @@ class FormFactorDataset(object):
         noise_threshy: float, noise-to-signal ratio for cutting on the data.
             Default is 0.03, i.e., 3 percent.
     """
-    def __init__(self, ds, noise_threshy=0.03):
-
-        self._tags = Tags(src='light-light', snk='heavy-light')
+    def __init__(self, ds, tags=None, noise_threshy=0.03):
+        if tags is None:
+            self._tags = Tags(src='light-light', snk='heavy-light')
+        else:
+            self._tags = tags
         self.c2 = {}
         for tag in self._tags:
-            self.c2[tag] = correlator.TwoPoint(tag, ds.pop(tag), noise_threshy)
+            self.c2[tag] = correlator.TwoPoint(tag, ds[tag], noise_threshy)
         tag = None
-        self.c3 = correlator.ThreePoint(tag, ds, noise_threshy)
+        tmp = {tag: val for tag, val in ds.items() if isinstance(tag, int)}
+        self.c3 = correlator.ThreePoint(tag, tmp, noise_threshy)
         self._verify_tdata()
 
     def _verify_tdata(self):
@@ -424,10 +427,15 @@ class FormFactorDataset(object):
             plateau = max(plateau, local_max)
         return plateau
 
+    @property
+    def r_guess(self):
+        """Compute a guess for the plateau value of R."""
+        return self.estimate_plateau()
+
     def plot_corr(self, ax=None):
         """Plot the correlation functions in the dataset."""
         if ax is None:
-            _, ax = plt.subplots(1, figsize=(10, 5))
+            _, ax = visualize.subplots(1, figsize=(10, 5))
         colors = sns.color_palette()
         # Two-point functions
         for color, tag in zip(colors, self._tags):
