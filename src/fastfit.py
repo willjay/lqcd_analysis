@@ -20,13 +20,33 @@ class FastFit(object):
 
         fo(E, t) = (-1)**t * fn(E, t)
     """
-
+    # This code closely mirrors that of Lepage's. For ease of future comparison
+    # we avoid changing all of the variable names.
+    # pylint: disable=invalid-name
     def __init__(self, data, ampl='0(1)', dE='1(1)', E=None, s=(1, -1),
                  tp=None, tmin=6, svdcut=1e-6, osc=False, nterm=10):
-
+        """
+        Args:
+            data: list / array of correlator data
+            ampl: str, the prior for the amplitude. Default is '0(1)'
+            dE: str, the prior for the energy splitting. Default is '1(1)'
+            E0: str, the prior for the ground state energy. Default is None,
+                which corresponds to taking the value for dE for the ground
+                state as well
+            s: tuple (s, so) with the signs for the towers of decay and
+                oscillating states, repsectively. Default is (1, -1)
+            tp: int, the periodicity of the data. Negative tp denotes
+                antiperiodic "sinh-like" data. Default is None, corresponding
+                to exponential decay
+            tmin: int, the smallest tmin to include in the "averaging"
+            svdcut: float, the desired svd cut for the "averaging"
+            osc: bool, whether to estimate the lowest-lying oscillating state
+                instead of the decay state
+            nterms: the number of terms to include in the towers of decaying
+                and oscillating states.
+        """
         self.osc = osc
         self.nterm = nterm
-
         s = self._to_tuple(s)
         a, ao = self._build(ampl)
         dE, dEo = self._build(dE, E)
@@ -54,7 +74,6 @@ class FastFit(object):
             # Model with a sinh
             def g(E, t):
                 return gv.exp(-E * t) - gv.exp(-E * (-tp - t))
-
             # Reflect and fold the data around the midpoint
             tmid = int((-tp + 1) // 2)
             data_rest = lsqfit.wavg(
@@ -67,7 +86,7 @@ class FastFit(object):
         t = np.arange(len(data))[tmin:tmax]
         data = data[tmin:tmax]
 
-        if not len(t):
+        if not t:
             raise ValueError('tmin too large; not t values left')
 
         if osc:
@@ -146,3 +165,4 @@ class FastFit(object):
             self.E, self.ampl, self.E.chi2 / self.E.dof,
             self.ampl.chi2 / self.ampl.dof, self.E.dof, self.E.Q, self.ampl.Q,
         )
+    # pylint: enable=invalid-name,protected-access
