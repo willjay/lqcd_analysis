@@ -2,6 +2,8 @@
 FastFit -- for two-point correlation functions
 FormFactorFastFit -- for form factors
 """
+import collections
+import itertools
 import numpy as np
 import lsqfit
 import gvar as gv
@@ -44,6 +46,8 @@ class FastFit(object):
                 instead of the decay state
             nterms: the number of terms to include in the towers of decaying
                 and oscillating states.
+        Raises:
+            RuntimeError: Can't estimate energy when cosh(E) < 1.
         """
         self.osc = osc
         self.nterm = nterm
@@ -86,8 +90,10 @@ class FastFit(object):
         t = np.arange(len(data))[tmin:tmax]
         data = data[tmin:tmax]
 
-        if not t:
+        if not t.size:
             raise ValueError('tmin too large; not t values left')
+        self.tmin = tmin
+        self.tmax = tmax
 
         if osc:
             data *= (-1) ** t * so
@@ -110,7 +116,7 @@ class FastFit(object):
 
         # Marginalize over the exicted states
         data = data - d_data
-
+        self.marginalized_data = data
         # Average over the remaining plateau
         meff = 0.5 * (data[2:] + data[:-2]) / data[1:-1]
         ratio = lsqfit.wavg(meff, prior=gv.cosh(E[0]), svdcut=svdcut)
@@ -160,9 +166,139 @@ class FastFit(object):
         return (
             "FastFit("
             "E: {} ampl: {} chi2/dof [dof]: {:.1f} {:.1f} [{}] "
-            "Q: {:.1f} {:.1f})"
+            "Q: E:{:.1f} ampl:{:.1f} "
+            "(tmin,tmax)=({},{}))"
         ).format(
             self.E, self.ampl, self.E.chi2 / self.E.dof,
             self.ampl.chi2 / self.ampl.dof, self.E.dof, self.E.Q, self.ampl.Q,
+            self.tmin, self.tmax
         )
     # pylint: enable=invalid-name,protected-access
+   
+
+FFRatioPrior = collections.namedtuple(
+    'FFRatioPrior',
+    field_names=['m_src', 'm_snk', 'r_guess'],
+    defaults=[gv.gvar("0.25(0.25)")]
+)
+
+
+FFRatioData = collections.namedtuple(
+    'FFRatioData',
+    field_names=['rdata', 'tdata', 't_snk', 'tfit']
+)
+
+
+class FastFitRatio(object):
+    """
+    FastFitRatio: A quick and dirty Bayesian estimation of the 'plateau' of a
+    ratio of two- and three-point correlation functions, which usually (up to 
+    normalization factors) corresponds to a matrix element or a form factor.
+
+    A standard mesonic 3-point correlation function (using staggered fermions)
+    has the form of Eq. 31 of Bailey et al PRD 79, 054507 (2009)
+    [https://arxiv.org/abs/0811.3640]. In other words, it is a sum of
+    exponentials with some phase factors. In Eq. 39 of the same paper, they 
+    consider a ratio of two- and three-point functions which has the form
+    R(t;T) = plateau + <exponentially decaying terms>. Fig. 6 of the same paper
+    shows the relatively flat plateaus even arise in practice.
+
+    This class furnishes an estimate of the "plateau" by estimating the size of
+    the "exponentially decaying terms" and removing them from data for R(t;t).
+
+    This class should be useful for both for the ratio of "averaged"
+    correlators of Eq. 39 or a raw/unaveraged version of Eq. 39 with the "bars"
+    removed from all the terms.
+    """
+    def __init__(self, t_snk, data, prior,
+                 ampl="0(1)", dE="0.25(0.25)", svdcut=1e-6, nterm=10):
+        """Estimates the plateau by marginalizing over excited states."""
+        self.t_snk = t_snk
+        self.rdata = data.rdata
+        self.tdata = data.tdata
+        self.tfit = data.tfit
+        self.nterm = nterm
+        # Estimates for the plateau and ground-states at the source and sink
+        self.m_src = prior.m_src
+        self.m_snk = prior.m_snk
+        self.r_guess = prior.r_guess
+        # Estimates for the tower of splittings at source and sink and for the
+        # matrix of amplitudes A[m, n]
+        dE_src = self._energies_above_ground_state(self.m_src, gv.gvar(dE))
+        dE_snk = self._energies_above_ground_state(self.m_snk, gv.gvar(dE))
+        amplitude = np.array([gv.gvar(ampl) for _ in range(nterm**2)])
+        amplitude = amplitude.reshape(nterm, nterm)
+
+        self.marginalized_data = self._marginalize(dE_src, dE_snk, amplitude)
+        self.result = self._fit_plateau(svdcut)
+
+    def _marginalize(self, dE_src, dE_snk, amplitude):
+        """
+        Marginalizes over the excited states using Bayesian priors.
+        More precisely, we use our priors for the excited-state masses and
+        amplitudes to subtract their contribution from the input data. This
+        subtraction amounts to 'marginalization.'
+        """
+        # Isolate data up to the sink location
+        t_snk = self.t_snk
+        t = self.tdata
+        data = self.rdata[:t_snk]
+        # Estimate contributions from the tower of excited states
+        # pylint: disable=protected-access
+        tower = np.zeros((t_snk, ), dtype=gv._gvarcore.GVar)
+        # pylint: enable=protected-access
+        for m, n in itertools.product(range(self.nterm), repeat=2):
+            if (m == 0) and (n == 0):
+                continue
+            dE_m0 = dE_src[m]
+            dE_n0 = dE_snk[n]
+            phase = (-1)**(m*t) * (-1)**(n*(t_snk-t))
+            tower +=\
+                phase\
+                * amplitude[m, n]\
+                * self._model(t, t_snk, dE_m0, dE_n0)
+        # Marginalize over the excited states
+        return data - tower
+
+    def _fit_plateau(self, svdcut):
+        """Fits the marginalized data to a constant"""
+        if self.tfit is not None:
+            tfit = self.tfit
+        else:
+            tfit = np.arange(self.t_snk)
+        # Average over the remaining plateau
+        yfit = self.marginalized_data[tfit]
+        return lsqfit.wavg(yfit, prior=self.r_guess, svdcut=svdcut)
+
+    def _model(self, t, t_snk, dE_src, dE_snk):
+        """
+        Computes the 'model function' containing the exponential decay away
+        from the source and sink operators.
+        model(t; t_snk) = exp(-dE_src * t) * exp(-dE_snk * (t_snk - t))
+        """
+        return np.exp(-dE_src * t) * np.exp(-dE_snk * (t_snk - t))
+
+    def _energies_above_ground_state(self, E0, splitting):
+        """
+        Computes the energies splittings above the ground state.
+        For the nth state, the splitting is Delta E_{n,0} = E_n - E_0.
+        """
+        # splittings
+        dE = [E0] + [splitting for _ in range(self.nterm - 1)]
+        # energies
+        E = np.cumsum(dE)
+        # energy of nth state above ground state
+        dE_n0 = E - E[0]
+        return dE_n0
+
+    def __str__(self):
+        return (
+            "FastFitRatio("
+            "plateau: {} "
+            "chi2/dof [dof]: {:.1f} [{}] "
+            "Q: {:.1f})"
+        ).format(
+            self.result,
+            self.result.chi2 / self.result.dof, self.result.dof,
+            self.result.Q
+        )
