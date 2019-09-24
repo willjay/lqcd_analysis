@@ -20,7 +20,8 @@ Nstates = collections.namedtuple(
 def count_nstates(params, key_map=None, tags=None):
     """
     Count the number of states used in fit.
-    Default behavior assumes names using 'light-light' and 'heavy-light'.
+    Default behavior assumes names 'light-light' and 'heavy-light' for src and
+    snk, respectively.
     """
     if tags is None:
         tags = dataset.Tags(src='light-light', snk='heavy-light')
@@ -121,7 +122,7 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None):
 
 
 def get_model(ds, tag, nstates):
-
+    """Gets a corrfitter model"""
     if isinstance(ds[tag], correlator.TwoPoint):
         osc = bool(nstates.no)
         return get_two_point_model(ds[tag], osc)
@@ -129,6 +130,27 @@ def get_model(ds, tag, nstates):
         t_snk = tag
         return get_three_point_model(t_snk, ds.tfit[t_snk], ds.tdata, nstates)
     raise TypeError("get_model() needs TwoPoint or ThreePoint objects.")
+
+
+def compute_yfit(ds, params):
+    """
+    Computes the model values "yfit".
+    The envisioned usage is that some set of stored fit parameters should be
+    used to construct "yfit" for comparison to the data stored in "ds". So
+    "yfit" should mirror the structure of "ds".
+    Args:
+        ds: FormFactorDataset with the data
+        params: dict of fit parameters
+    Returns:
+        yfit: dict
+    """
+    nstates = count_nstates(params)
+    yfit = {}
+    for tag in ds:
+        model = get_model(ds, tag, nstates)
+        tdata = np.array(model.tdata, dtype=float)
+        yfit[tag] = model.fitfcn(t=tdata, p=params)
+    return yfit
 
 
 def convert_vnn_to_ratio(m_src, matrix_element):
@@ -458,83 +480,4 @@ class FormFactorAnalysis(object):
                           alpha=0.50, color=color, label='Fit: R')
         ax.set_title("Form factor compared with estimates")
         ax.legend(loc=1)
-        return ax
-
-    def plot_overlay(self, ax=None):
-
-        if self.positive_ff:
-            flip = 1.0
-        else:
-            flip = -1.0
-            print(
-                '[+] The form factor is negative; reflecting overlay visualization to be positive.')
-
-        ds_fit = self.ds_fit
-        r_guess = self.r_guess
-        r = self.r
-        fitter = self.fitter
-        ds = self.ds
-        tfits = {model.datatag: model.tfit for model in fitter.models}
-
-        nrows = max(len(ds_fit.rbar), len(ds.rbar))
-        if ax is None:
-            fig, ax = plt.subplots(1, figsize=(10, 5))
-        xmin = 1
-        xmax = 14
-
-        colors = {
-            T: color for T,
-            color in zip(
-                ds.rbar.keys(),
-                sns.color_palette())}
-
-        for idx, (T, rbar) in enumerate(ds.rbar.iteritems()):
-            # The data
-            label = 'Data: $\\bar{{R}}$, T={0}'.format(T)
-            y = rbar[xmin:xmax]
-            x = np.arange(xmin, xmax)
-            norm = ds.normalization()
-            errorbar(
-                ax,
-                x,
-                norm * y,
-                fmt='.',
-                marker='o',
-                label=label,
-                color=colors[T])
-
-            # The fit
-            norm = ds_fit.normalization()
-            if T in ds_fit.rbar.keys():
-                rbar = ds_fit.rbar[T]
-                label = 'Fit: $\\bar{{R}}$, T={0}'.format(T)
-                y = rbar[xmin:xmax]
-                x = np.arange(xmin, xmax)
-                errorbar(
-                    ax,
-                    x,
-                    norm * y,
-                    bands=True,
-                    alpha=0.5,
-                    label=label,
-                    color=colors[T])
-
-            # Fit window
-            try:
-                tmin = min(tfits[T])
-                tmax = max(tfits[T])
-                axvline(ax, tmin, color='k', ls='--')
-                axvline(ax, tmax + 1, color=colors[T], ls='--')
-            except BaseException:
-                pass
-
-        norm = ds.normalization()
-        axhspan(ax, norm * r_guess, alpha=0.25, color='k', label='Prior: R')
-        norm = ds_fit.normalization()
-        axhline(ax, norm * r, alpha=0.50, color='k', label='Fit: R')
-
-        ax.legend(loc=1)
-        ax.set_ylabel('$\\bar{R}$ (lattice units)')
-        ax.set_xlabel('t/a')
-        ax.set_ylim(ymin=0.0, ymax=1.1 * gv.mean(self.r * norm))
         return ax
