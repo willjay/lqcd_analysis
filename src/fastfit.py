@@ -185,7 +185,7 @@ FFRatioPrior = collections.namedtuple(
 
 FFRatioData = collections.namedtuple(
     'FFRatioData',
-    field_names=['rdata', 'tdata', 't_snk', 'tfit']
+    field_names=['rdata', 'tdata', 'tfit']
 )
 
 
@@ -212,10 +212,22 @@ class FastFitRatio(object):
     """
     def __init__(self, t_snk, data, prior,
                  ampl="0(1)", dE="0.25(0.25)", svdcut=1e-6, nterm=10):
-        """Estimates the plateau by marginalizing over excited states."""
+        """
+        Estimates the plateau by marginalizing over excited states.
+        Args:
+            t_snk: int, the sink time "T"
+            data: namedtuple with attributes 'tdata','rdata', and 'tfit'
+            prior: namedtuple with attributes 'm_src', 'm_snk', 'r_guess'
+            ampl: str, estimate for the amplitudes in amplitude matrix.
+                Default is "0(1)"
+            dE: str, estimate for the energy splittings.
+                Default is "0.25(0.25)"
+            svdcut: float, size of the svdcut passed to lsqfit.wavg
+            nterm: int, number of terms to include in the model. Default is 10.
+        """
         self.t_snk = t_snk
         self.rdata = data.rdata
-        self.tdata = data.tdata
+        self.tdata = np.array(data.tdata, dtype=float)
         self.tfit = data.tfit
         self.nterm = nterm
         # Estimates for the plateau and ground-states at the source and sink
@@ -228,9 +240,8 @@ class FastFitRatio(object):
         dE_snk = self._energies_above_ground_state(self.m_snk, gv.gvar(dE))
         amplitude = np.array([gv.gvar(ampl) for _ in range(nterm**2)])
         amplitude = amplitude.reshape(nterm, nterm)
-
         self.marginalized_data = self._marginalize(dE_src, dE_snk, amplitude)
-        self.result = self._fit_plateau(svdcut)
+        self.plateau = self._fit_plateau(svdcut)
 
     def _marginalize(self, dE_src, dE_snk, amplitude):
         """
@@ -241,7 +252,7 @@ class FastFitRatio(object):
         """
         # Isolate data up to the sink location
         t_snk = self.t_snk
-        t = self.tdata
+        t = self.tdata[:t_snk]
         data = self.rdata[:t_snk]
         # Estimate contributions from the tower of excited states
         # pylint: disable=protected-access
@@ -294,11 +305,11 @@ class FastFitRatio(object):
     def __str__(self):
         return (
             "FastFitRatio("
-            "plateau: {} "
-            "chi2/dof [dof]: {:.1f} [{}] "
+            "plateau: {}, "
+            "chi2/dof [dof]: {:.1f} [{}], "
             "Q: {:.1f})"
         ).format(
-            self.result,
-            self.result.chi2 / self.result.dof, self.result.dof,
-            self.result.Q
+            self.plateau,
+            self.plateau.chi2 / self.plateau.dof, self.plateau.dof,
+            self.plateau.Q
         )
