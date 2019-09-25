@@ -3,15 +3,24 @@ jackknife
 build_dataset
 FormFactorDataset
 """
+import sys
 import collections
 import functools
 import numpy as np
+import logging
 import gvar as gv
 import pylab as plt
 import seaborn as sns
 from . import shrink
 from . import correlator
 from . import visualize
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.DEBUG)
+logger.addHandler(handler)
+
 
 Tags = collections.namedtuple('Tags', ['src', 'snk'])
 
@@ -63,7 +72,7 @@ def avg_bin(arr, binsize=1):
     return binned
 
 
-def nonlinear_shrink(samples, n_eff, verbose=False):
+def nonlinear_shrink(samples, n_eff):
     """
     Shrink the correlation matrix using direct nonlinear shrinkage.
 
@@ -76,9 +85,8 @@ def nonlinear_shrink(samples, n_eff, verbose=False):
     Returns:
         array, the shrunken correlation matrix
     """
-    if verbose:
-        logger.info("[+] Direct nonlinear correlation matrix shrinkage.")
-        logger.info("Using effective numer of samples n={0}".format(n_eff))
+    logger.info(f'INFO: Direct nonlinear shrinkage of  correlation.')
+    logger.info(f'INFO: Using effective number of samples n={n_eff}.')
     corr = gv.evalcorr(gv.dataset.avg_data(samples))
     # Decompose into eigenvalues
     vals, vecs = np.linalg.eig(corr)  # (eigvals, eigvecs)
@@ -88,9 +96,13 @@ def nonlinear_shrink(samples, n_eff, verbose=False):
     vecs = vecs[:, order]
     # Shrink the eigenvalue spectrum
     vals_shrink = shrink.direct_nl_shrink(vals, n_eff)
-    # Reconstruct eigenvalue matrix
-    corr_shrink = np.einsum("ab,bc,cd",
-                            vecs, np.diag(vals_shrink), vecs.transpose())
+    # Reconstruct eigenvalue matrix: vecs x diag(vals) x vecs^T
+    corr_shrink = np.matmul(
+                    vecs,
+                    np.matmul(
+                        np.diag(vals_shrink),
+                        vecs.transpose())
+                    )
     # Match output of other shrink functions
     pair = (None, corr_shrink)
     return pair
@@ -128,7 +140,7 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
         final_cov: the final correct covariance "matrix" as a dictionary
     """
     if ordered_tags is None:
-        ordered_tags = sorted(data.keys())
+        ordered_tags = sorted(data.keys(), key=str)
     # shapes are (n,p), where n is nsamples and p is ndata
     sizes = [data[tag].shape[1] for tag in ordered_tags]
 
@@ -156,19 +168,22 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
     else:
         # Carry out the desired shrinkage
         samples = np.hstack([data[tag] for tag in ordered_tags])
-        kwargs = {'verbose': True}
+        kwargs = {}
         if shrink_choice == 'nonlinear':
-            kwargs['n'] = samples.shape[0] // binsize
+            kwargs['n_eff'] = samples.shape[0] // binsize
         (_, corr_shrink_concat) = shrink_fcns[shrink_choice](samples, **kwargs)
         corr_shrink = decomp_blocks(corr_shrink_concat, ordered_tags, sizes)
 
     # Correlate errors according to the shrunken correlation matrix
     final_cov = {}
     for key_l, key_r in corr_shrink:
-        final_cov[(key_l, key_r)] = np.einsum("ab,bc,cd",
-                                              binned_err[key_l],
-                                              corr_shrink[(key_l, key_r)],
-                                              binned_err[key_r])
+        # err x corr x err
+        final_cov[(key_l, key_r)] = np.matmul(
+                                        binned_err[key_l],
+                                        np.matmul(
+                                           corr_shrink[(key_l, key_r)],
+                                           binned_err[key_r])
+                                        )
     return final_cov
 
 
@@ -194,7 +209,7 @@ def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None):
                 # Don't fold integer-indexed three-point functions
                 tmp[key] = value
         except TypeError:
-            print(key, value)
+            logger.error(f'ERROR: bad (key, value), ({key},{value})')
     # Correlate the data, including binning and shrinkage
     ds_binned = _correlate(tmp, binsize=binsize, shrink_choice=shrink_choice)
     return ds_binned
