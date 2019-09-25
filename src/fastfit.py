@@ -173,8 +173,7 @@ class FastFit(object):
             self.ampl.chi2 / self.ampl.dof, self.E.dof, self.E.Q, self.ampl.Q,
             self.tmin, self.tmax
         )
-    # pylint: enable=invalid-name,protected-access
-   
+    # pylint: enable=invalid-name,protected-access 
 
 FFRatioPrior = collections.namedtuple(
     'FFRatioPrior',
@@ -192,13 +191,13 @@ FFRatioData = collections.namedtuple(
 class FastFitRatio(object):
     """
     FastFitRatio: A quick and dirty Bayesian estimation of the 'plateau' of a
-    ratio of two- and three-point correlation functions, which usually (up to 
+    ratio of two- and three-point correlation functions, which usually (up to
     normalization factors) corresponds to a matrix element or a form factor.
 
     A standard mesonic 3-point correlation function (using staggered fermions)
     has the form of Eq. 31 of Bailey et al PRD 79, 054507 (2009)
     [https://arxiv.org/abs/0811.3640]. In other words, it is a sum of
-    exponentials with some phase factors. In Eq. 39 of the same paper, they 
+    exponentials with some phase factors. In Eq. 39 of the same paper, they
     consider a ratio of two- and three-point functions which has the form
     R(t;T) = plateau + <exponentially decaying terms>. Fig. 6 of the same paper
     shows the relatively flat plateaus even arise in practice.

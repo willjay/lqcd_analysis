@@ -2,6 +2,7 @@
 TwoPointAnalysis
 FormFactorAnalysis
 """
+import logging
 import collections
 import numpy as np
 import gvar as gv
@@ -11,6 +12,8 @@ from . import dataset
 from . import bayes_prior
 from . import statistics
 from . import visualize
+
+LOGGER = logging.getLogger(__name__)
 
 Nstates = collections.namedtuple(
     'NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0)
@@ -260,8 +263,8 @@ class FormFactorAnalysis(object):
     @property
     def r_prior(self):
         src_tag = self.ds._tags.src
-        m_src=self.prior[f'{src_tag}:dE'][0]
-        matrix_element=self.prior['Vnn'][0, 0]
+        m_src = self.prior[f'{src_tag}:dE'][0]
+        matrix_element = self.prior['Vnn'][0, 0]
         return convert_vnn_to_ratio(m_src, matrix_element)
 
     @property
@@ -284,7 +287,7 @@ class FormFactorAnalysis(object):
             fit = TwoPointAnalysis(self.ds.c2[tag]).\
                 run_fit(nstates, **fitter_kwargs)
             if fit is None:
-                logger.warning('[-] Warning: {0} fit failed'.format(tag))
+                LOGGER.warning('Fit failed for two-point function %s.', tag)
             else:
                 self.prior.update(update_with=fit.p, width=0.1)
             self.fits[tag] = fit
@@ -298,12 +301,12 @@ class FormFactorAnalysis(object):
             fit = self.fitter.lsqfit(
                 data=self.ds, prior=self.prior, **fitter_kwargs)
             if np.isnan(fit.chi2):
-                logger.warning('[-] full fit failed')
+                LOGGER.warning('Full joint fit failed.')
                 fit = None
         else:
             self.fitter = None
             fit = None
-            logger.warning('[-] insufficient models. skipping')
+            LOGGER.warning('Insufficient models found. Skipping joint fit.')
         self.fits['full'] = fit
 
     def collect_statistics(self):

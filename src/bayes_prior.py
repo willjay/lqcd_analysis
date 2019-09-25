@@ -9,7 +9,7 @@ import gvar as gv
 
 
 def main():
-    print("Module for handling priors.")
+    """TODO: Add main function."""
 
 
 def _is_log(key):
@@ -24,7 +24,7 @@ def _check_duplicate_keys(keys):
     log_keys = [key for key in keys if _is_log(key)]
     for log_key in log_keys:
         exp_key = log_key[4:-1]
-        if  exp_key in keys:
+        if exp_key in keys:
             msg = "Cannot have keys '{0}' and '{1}' together.".\
                 format(log_key, exp_key)
             msg += " Pick one or the other."

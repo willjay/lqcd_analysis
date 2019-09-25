@@ -3,11 +3,10 @@ jackknife
 build_dataset
 FormFactorDataset
 """
-import sys
+import logging
 import collections
 import functools
 import numpy as np
-import logging
 import gvar as gv
 import pylab as plt
 import seaborn as sns
@@ -15,18 +14,12 @@ from . import shrink
 from . import correlator
 from . import visualize
 
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
-logger.addHandler(handler)
-
+LOGGER = logging.getLogger(__name__)
 
 Tags = collections.namedtuple('Tags', ['src', 'snk'])
 
 def main():
-    """Run the main function."""
-    print("functions related to building datasets")
+    """TODO: Add main function"""
 
 
 def fold(arr):
@@ -85,8 +78,8 @@ def nonlinear_shrink(samples, n_eff):
     Returns:
         array, the shrunken correlation matrix
     """
-    logger.info(f'INFO: Direct nonlinear shrinkage of  correlation.')
-    logger.info(f'INFO: Using effective number of samples n={n_eff}.')
+    LOGGER.info(f'Direct nonlinear shrinkage of correlation matrix.')
+    LOGGER.info(f'Using effective number of samples n={n_eff}.')
     corr = gv.evalcorr(gv.dataset.avg_data(samples))
     # Decompose into eigenvalues
     vals, vecs = np.linalg.eig(corr)  # (eigvals, eigvecs)
@@ -209,7 +202,7 @@ def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None):
                 # Don't fold integer-indexed three-point functions
                 tmp[key] = value
         except TypeError:
-            logger.error(f'ERROR: bad (key, value), ({key},{value})')
+            LOGGER.error(f'ERROR: bad (key, value), ({key},{value})')
     # Correlate the data, including binning and shrinkage
     ds_binned = _correlate(tmp, binsize=binsize, shrink_choice=shrink_choice)
     return ds_binned
@@ -224,7 +217,7 @@ def normalization(ns, momentum, current, energy_src, m_snk):
     """
     if (momentum is None) or (current is None):
         msg = "Unspecified momentum/current. Defaulting to unit normalization."
-        logger.info(msg)
+        LOGGER.info(msg)
         return 1.0
 
     p_vec = [2.0 * np.pi * float(pj) / ns for pj in momentum.lstrip("p")]
@@ -256,7 +249,7 @@ def normalization(ns, momentum, current, energy_src, m_snk):
         norm *= tensor_factor
     if np.isnan(norm):
         msg = '[-] Normalization factor was a nan. Defaulting back to unity.'
-        logger.warning(msg)
+        LOGGER.warning(msg)
         norm = 1.0
     return norm
 

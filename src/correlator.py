@@ -5,11 +5,15 @@ effective_mass
 fold
 BaseCorrelator
 """
+import pathlib
+import logging
 import numpy as np
 import gvar as gv
 from . import fastfit
 from . import visualize
+from . import utils
 
+LOGGER = logging.getLogger(__name__)
 
 def main():
     pass
@@ -84,11 +88,10 @@ class BaseTimes(object):
         return "BaseTimes(tmin={0},tmax={1},nt={2},tp={3})".\
             format(self.tmin, self.tmax, self.nt, self.tp)
 
-
+@utils.timing
 class TwoPoint(object):
     """TwoPoint correlation function."""
     def __init__(self, tag, ydata, noise_threshy=0.03):
-
         self.tag = tag
         self.ydata = ydata
         self.noise_threshy = noise_threshy

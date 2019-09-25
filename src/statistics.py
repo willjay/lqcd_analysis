@@ -2,9 +2,12 @@
 Module containing various statistics functions and a container for evaluating
 and storing them for a given fit.
 """
+import logging
 import numpy as np
 import scipy
 import gvar as gv
+
+LOGGER = logging.getLogger(__name__)
 
 
 def correlated_q(chi2_aug, ndata):
@@ -71,7 +74,7 @@ def chi2(fit, augmented=False, trust_lsqfit=False):
     """Computes the chi2 function."""
     if trust_lsqfit:
         if not augmented:
-            logger.warning((
+            LOGGER.warning((
                 "Caution: lsqfit computes an augmented chi2 function."
                 "Trusting lsqfit as specified anway."
             ))
