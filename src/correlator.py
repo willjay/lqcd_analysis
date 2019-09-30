@@ -98,10 +98,13 @@ class TwoPoint(object):
         self.times = BaseTimes(tdata=np.arange(len(ydata)))
         self.times.tmax = _infer_tmax(ydata, noise_threshy)
         # Estimate the ground-state energy and amplitude
-        self.fastfit = fastfit.FastFit(
-            data=self.ydata[:self.times.tmax],
-            tp=self.times.tp,
-            tmin=self.times.tmin)
+        try:
+            self.fastfit = fastfit.FastFit(
+                data=self.ydata[:self.times.tmax],
+                tp=self.times.tp,
+                tmin=self.times.tmin)
+        except RuntimeError:
+            self.fastfit = None
 
     @property
     def mass(self):
