@@ -27,14 +27,14 @@ def fold(arr):
     try:
         _, nt = arr.shape
         t = np.arange(nt)
-        front = arr[:, :nt / 2 + 1]
-        back = arr[:, (nt - t) % nt][:, :nt / 2 + 1]
+        front = arr[:, :nt // 2 + 1]
+        back = arr[:, (nt - t) % nt][:, :nt // 2 + 1]
         new_arr = np.mean([front, back], axis=0)
     except ValueError:
         nt, = arr.shape
         t = np.arange(nt)
-        front = arr[:nt / 2 + 1]
-        back = arr[(nt - t) % nt][:nt / 2 + 1]
+        front = arr[:nt // 2 + 1]
+        back = arr[(nt - t) % nt][:nt // 2 + 1]
         new_arr = np.mean([front, back], axis=0)
     return new_arr
 
