@@ -3,10 +3,13 @@ FastFit -- for two-point correlation functions
 FormFactorFastFit -- for form factors
 """
 import collections
+import logging
 import itertools
 import numpy as np
 import lsqfit
 import gvar as gv
+
+LOGGER = logging.getLogger(__name__)
 
 
 class FastFit(object):
@@ -85,13 +88,13 @@ class FastFit(object):
             data = np.array([data[0]] + list(data_rest))
 
         else:
-            raise ValueError('bad tp')
+            raise ValueError('FastFit: bad tp')
 
         t = np.arange(len(data))[tmin:tmax]
         data = data[tmin:tmax]
 
         if not t.size:
-            raise ValueError('tmin too large; not t values left')
+            raise ValueError('FastFit: tmin too large; no t values left')
         self.tmin = tmin
         self.tmax = tmax
 
@@ -123,12 +126,15 @@ class FastFit(object):
 
         if ratio >= 1:
             self.E = type(ratio)(gv.arccosh(ratio), ratio.fit)
+            self.ampl = lsqfit.wavg(data / g(self.E, t) / s,
+                                    svdcut=svdcut, prior=a[0])
         else:
-            msg = "can't estimate energy: cosh(E) = {}".format(ratio)
-            raise RuntimeError(msg)
-
-        self.ampl = lsqfit.wavg(data / g(self.E, t) / s,
-                                svdcut=svdcut, prior=a[0])
+            LOGGER.warn(
+                'Cannot estiamte energy in FastFit: cosh(E) = %s', 
+                str(ratio)
+            )
+            self.E = None
+            self.ampl = None
 
     def _to_tuple(self, val):
         """Convert val to tuple."""
@@ -174,6 +180,16 @@ class FastFit(object):
             self.tmin, self.tmax
         )
     # pylint: enable=invalid-name,protected-access 
+    def to_dict(self):
+        return {
+            'energy': str(self.E),
+            'ampl': str(self.ampl),
+            'tmin': self.tmin,
+            'tmax': self.tmax,
+            'nterm': self.nterm,
+            'osc': self.osc,
+        }
+            
 
 FFRatioPrior = collections.namedtuple(
     'FFRatioPrior',

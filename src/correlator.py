@@ -91,20 +91,20 @@ class BaseTimes(object):
 @utils.timing
 class TwoPoint(object):
     """TwoPoint correlation function."""
-    def __init__(self, tag, ydata, noise_threshy=0.03):
+    def __init__(self, tag, ydata, noise_threshy=0.03, **time_kwargs):
         self.tag = tag
         self.ydata = ydata
         self.noise_threshy = noise_threshy
-        self.times = BaseTimes(tdata=np.arange(len(ydata)))
+        tdata = time_kwargs.pop('tdata', None)
+        if tdata is None:
+            tdata = np.arange(len(ydata))
+        self.times = BaseTimes(tdata=tdata, **time_kwargs)
         self.times.tmax = _infer_tmax(ydata, noise_threshy)
         # Estimate the ground-state energy and amplitude
-        try:
-            self.fastfit = fastfit.FastFit(
-                data=self.ydata[:self.times.tmax],
-                tp=self.times.tp,
-                tmin=self.times.tmin)
-        except RuntimeError:
-            self.fastfit = None
+        self.fastfit = fastfit.FastFit(
+            data=self.ydata[:self.times.tmax],
+            tp=self.times.tp,
+            tmin=self.times.tmin)
 
     @property
     def mass(self):
