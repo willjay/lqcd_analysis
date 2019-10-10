@@ -264,7 +264,7 @@ class FormFactorDataset(object):
         noise_threshy: float, noise-to-signal ratio for cutting on the data.
             Default is 0.03, i.e., 3 percent.
     """
-    def __init__(self, ds, tags=None, noise_threshy=0.03):
+    def __init__(self, ds, tags=None, noise_threshy=0.03, sign=1.0):
         if tags is None:
             self._tags = Tags(src='light-light', snk='heavy-light')
         else:
@@ -273,7 +273,7 @@ class FormFactorDataset(object):
         for tag in self._tags:
             self.c2[tag] = correlator.TwoPoint(tag, ds[tag], noise_threshy)
         tag = None
-        tmp = {tag: val for tag, val in ds.items() if isinstance(tag, int)}
+        tmp = {tag: sign*val for tag, val in ds.items() if isinstance(tag, int)}
         self.c3 = correlator.ThreePoint(tag, tmp, noise_threshy)
         self._verify_tdata()
 
