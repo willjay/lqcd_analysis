@@ -78,8 +78,8 @@ def nonlinear_shrink(samples, n_eff):
     Returns:
         array, the shrunken correlation matrix
     """
-    LOGGER.info(f'Direct nonlinear shrinkage of correlation matrix.')
-    LOGGER.info(f'Using effective number of samples n={n_eff}.')
+    LOGGER.info('Direct nonlinear shrinkage of correlation matrix.')
+    LOGGER.info('Using effective number of samples n=%d.', n_eff)
     corr = gv.evalcorr(gv.dataset.avg_data(samples))
     # Decompose into eigenvalues
     vals, vecs = np.linalg.eig(corr)  # (eigvals, eigvecs)
@@ -202,7 +202,10 @@ def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None):
                 # Don't fold integer-indexed three-point functions
                 tmp[key] = value
         except TypeError:
-            LOGGER.error(f'ERROR: bad (key, value), ({key},{value})')
+            LOGGER.error(
+                'ERROR: bad (key, value), (%s,%s)',
+                str(key), str(value)
+            )
     # Correlate the data, including binning and shrinkage
     ds_binned = _correlate(tmp, binsize=binsize, shrink_choice=shrink_choice)
     return ds_binned
@@ -265,34 +268,42 @@ class FormFactorDataset(object):
             Default is 0.03, i.e., 3 percent.
     """
     def __init__(self, ds, tags=None, noise_threshy=0.03, sign=1.0):
+        # Start with the three-point function(s).
+        # Infer nt from the three-point function in case the two-point
+        # functions have been folded about the midpoint.
+        ydict = {tag: sign*val for tag, val in ds.items() if isinstance(tag, int)}
+        self.c3 = correlator.ThreePoint(
+            tag=None, ydict=ydict, noise_threshy=noise_threshy
+        )
+        nt = self.c3.times.nt  
         if tags is None:
             self._tags = Tags(src='light-light', snk='heavy-light')
         else:
             self._tags = tags
         self.c2 = {}
         for tag in self._tags:
-            self.c2[tag] = correlator.TwoPoint(tag, ds[tag], noise_threshy)
-        tag = None
-        tmp = {tag: sign*val for tag, val in ds.items() if isinstance(tag, int)}
-        self.c3 = correlator.ThreePoint(tag, tmp, noise_threshy)
+            self.c2[tag] = correlator.TwoPoint(
+                tag, ds[tag], noise_threshy, nt=nt
+            )
         self._verify_tdata()
 
     def _verify_tdata(self):
-        """Verify that all correlators have matching tdata."""
-        tdata = [
-            self.c2_src.times.tdata,
-            self.c2_src.times.tdata,
-            self.c3.times.tdata
-        ]
-        for tdata_i in tdata:
-            if not np.all(tdata_i == tdata[0]):
+        """Verify that all correlators have matching nt."""
+        nts = [self.c2_src.times.nt,
+               self.c2_snk.times.nt,
+               self.c3.times.nt]
+        for nt in nts:
+            if not np.all(nt == nts[0]):
                 raise ValueError('tdata does not match across correlators')
 
     @property
     def tdata(self):
-        """Get tdata from c3, verifying that it is safe to do so."""
+        """ Get tdata from 0 to the smallest tmax. """
         self._verify_tdata()
-        return self.c3.times.tdata
+        tmaxes = [self.c2_src.times.tmax,
+                  self.c2_snk.times.tmax,
+                  self.c3.times.tmax]
+        return np.arange(0, min(tmaxes))
 
     @property
     def tfit(self):
