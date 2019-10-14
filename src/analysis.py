@@ -20,6 +20,17 @@ Nstates = collections.namedtuple(
 )
 
 
+def get_phat2(ptag):
+    """
+    Strip out the squared momentum $\\hat{p}^2$ from strings like 'p123'.
+    """
+    return sum([int(pj)**2 for pj in ptag.lstrip("p")])
+
+def get_p2(ptag, ns):
+    """ Convert compute the squared momentum"""
+    phat2 = get_phat2(ptag)
+    return phat2 * (2.0*np.pi/ns)**2.0
+
 def count_nstates(params, key_map=None, tags=None):
     """
     Count the number of states used in fit.
