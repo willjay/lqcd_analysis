@@ -320,10 +320,12 @@ class FastFitRatio(object):
     def __str__(self):
         return (
             "FastFitRatio("
+            "t_snk: {}, "
             "plateau: {}, "
             "chi2/dof [dof]: {:.1f} [{}], "
             "Q: {:.1f})"
         ).format(
+            self.t_snk,
             self.plateau,
             self.plateau.chi2 / self.plateau.dof, self.plateau.dof,
             self.plateau.Q
