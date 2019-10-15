@@ -268,10 +268,11 @@ class FormFactorDataset(object):
             Default is 0.03, i.e., 3 percent.
     """
     def __init__(self, ds, tags=None, noise_threshy=0.03, sign=1.0):
+        self.sign = sign / np.abs(sign)
         # Start with the three-point function(s).
         # Infer nt from the three-point function in case the two-point
         # functions have been folded about the midpoint.
-        ydict = {tag: sign*val for tag, val in ds.items() if isinstance(tag, int)}
+        ydict = {tag: val for tag, val in ds.items() if isinstance(tag, int)}
         self.c3 = correlator.ThreePoint(
             tag=None, ydict=ydict, noise_threshy=noise_threshy
         )
@@ -394,7 +395,6 @@ class FormFactorDataset(object):
         c2_snk = self.c2_snk
         m_src = self.m_src
         m_snk = self.m_snk
-        t = self.tdata
         if avg:
             # Switch to averaged versions of all the quantites
             c3 = self.c3bar
@@ -405,11 +405,12 @@ class FormFactorDataset(object):
         # Compute the ratio
         r = {}
         for t_snk in c3:
+            t = np.arange(t_snk)
             denom = np.sqrt(
                 c2_src[t] * c2_snk[t_snk - t] *
                 np.exp(-m_src * t) * np.exp(-m_snk * (t_snk - t))
             )
-            tmax = min(len(c3[t_snk]), max(t))
+            tmax = t_snk
             r[t_snk] = c3[t_snk][:tmax] * np.sqrt(2 * m_src) / denom[:tmax]
         return r
 
@@ -436,13 +437,12 @@ class FormFactorDataset(object):
 
     def estimate_plateau(self):
         """Estimate the value of the plateau."""
-        factor = +1.0
         # TODO: handle normalization
         # if normalization() < 0:
         #     factor = -1.0
         plateau = float('-inf')
         for t_snk, rbar in self.rbar.items():
-            local_max = max(factor * gv.mean(rbar[1:t_snk - 1]))
+            local_max = max(self.sign * gv.mean(rbar[1:t_snk - 1]))
             plateau = max(plateau, local_max)
         return plateau
 
@@ -493,15 +493,15 @@ class FormFactorDataset(object):
         # norm = self.normalization()
         if tmax is None:
             tmax = max(self.t_snks)
-        t = np.arange(tmin, tmax)
         r = self.r
         rbar = self.rbar
         for color, t_snk in zip(colors, sorted(r)):
+            t = t[max(tmin, min(t)): min(tmax, max(t))]
             x = t
             if plot_sawtooth:
                 # Unsmeared "saw-tooth" ratio
                 label = "R, T={0}".format(t_snk)
-                y = sign * r[t_snk][t]
+                y = self.sign * r[t_snk][t]
                 visualize.errorbar(
                     ax, x, y,
                     label=label, color=color, fmt='-.', **plot_kwargs
@@ -509,7 +509,7 @@ class FormFactorDataset(object):
             if t_snk in self.rbar:
                 # Smeared ratio
                 label = "Rbar, T={0}".format(t_snk)
-                y = sign * rbar[t_snk][t]
+                y = self.sign * rbar[t_snk][t]
                 visualize.errorbar(
                     ax, x, y,
                     label=label, color=color, bands=bands, **plot_kwargs
