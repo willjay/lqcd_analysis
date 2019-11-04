@@ -130,7 +130,7 @@ class BasePrior(object):
         for key in self.keys():
             yield self.__getitem__(key)
 
-    def update(self, update_with, width=None):
+    def update(self, update_with, width=None, fractional_width=False):
         """Update keys in prior with dict 'update_with'."""
         keys = self.keys()
         for key in update_with:
@@ -139,7 +139,10 @@ class BasePrior(object):
                 if width:
                     if not hasattr(value, '__len__'):
                         value = [value]
-                    value = [gv.gvar(gv.mean(val), width) for val in value]
+                    if fractional_width:
+                        value = [gv.gvar(gv.mean(val), gv.mean(val) * width) for val in value]
+                    else:
+                        value = [gv.gvar(gv.mean(val), width) for val in value]
                 self.__setitem__(key, value)
 
     @property
@@ -202,9 +205,9 @@ class MesonPrior(BasePrior):
             amp_guess = gv.mean(ffit.ampl)
             prior['dE'][0] = gv.gvar(dE_guess, 0.5 * dE_guess)
             if 'a' in amps:
-                prior['a'][0] = gv.gvar(amp_guess, 1.0 * amp_guess)
+                prior['a'][0] = gv.gvar(amp_guess, 2.0 * amp_guess)
             elif 'b' in amps:
-                prior['b'][0] = gv.gvar(amp_guess, 1.0 * amp_guess)
+                prior['b'][0] = gv.gvar(amp_guess, 2.0 * amp_guess)
             else:
                 msg = "Error: Unrecognized amplitude structure?"
                 raise ValueError(msg)

@@ -20,16 +20,17 @@ Nstates = collections.namedtuple(
 )
 
 
-def get_phat2(ptag):
+def phat2(ptag):
     """
     Strip out the squared momentum $\\hat{p}^2$ from strings like 'p123'.
     """
     return sum([int(pj)**2 for pj in ptag.lstrip("p")])
 
-def get_p2(ptag, ns):
+
+def p2(ptag, ns):
     """ Convert compute the squared momentum"""
-    phat2 = get_phat2(ptag)
-    return phat2 * (2.0*np.pi/ns)**2.0
+    return phat2(ptag) * (2.0*np.pi/ns)**2.0
+
 
 def count_nstates(params, key_map=None, tags=None):
     """
@@ -229,7 +230,9 @@ class FormFactorAnalysis(object):
         self.r = None
 
     def run_sequential_fits(
-            self, nstates, tmin_override=None, **fitter_kwargs):
+            self, nstates, tmin_override=None,
+            width=0.1, fractional_width=False,
+            **fitter_kwargs):
         """
         Runs sequential fits.
         First runs two-point functions, whose results are used to update
@@ -243,7 +246,11 @@ class FormFactorAnalysis(object):
                 self.ds.c2_src.times.tmin = tmin_override.src
             if tmin_override.snk is not None:
                 self.ds.c2_snk.times.tmin = tmin_override.snk
-        self.fit_two_point(nstates=nstates, **fitter_kwargs)
+        self.fit_two_point(
+            nstates=nstates,
+            width=width,
+            fractional_width=fractional_width,
+            **fitter_kwargs)
         self.fit_form_factor(nstates=nstates, **fitter_kwargs)
         self.collect_statistics()
         self.r = convert_vnn_to_ratio(self.m_src, self.matrix_element)
@@ -290,17 +297,21 @@ class FormFactorAnalysis(object):
         r_guess = np.abs(gv.mean(self.ds.r_guess))
         return r_fit >= r_guess
 
-    def fit_two_point(self, nstates, **fitter_kwargs):
+    def fit_two_point(self, nstates, width=0.1, fractional_width=False, **fitter_kwargs):
         """Run the fits of two-point functions."""
         for tag in self.ds.c2:
+            _nstates = nstates
+            if tag == self.ds._tags.snk:
+              _nstates = Nstates(n=nstates.m, no=nstates.mo)
             # TODO: handle possible re-running if fit fails initially
             # In the other code, I reset the priors on dEo to match dE
             fit = TwoPointAnalysis(self.ds.c2[tag]).\
-                run_fit(nstates, **fitter_kwargs)
+                run_fit(_nstates, **fitter_kwargs)
             if fit is None:
                 LOGGER.warning('Fit failed for two-point function %s.', tag)
             else:
-                self.prior.update(update_with=fit.p, width=0.1)
+                self.prior.update(
+                    update_with=fit.p, width=width, fractional_width=fractional_width)
             self.fits[tag] = fit
 
     def fit_form_factor(self, nstates, **fitter_kwargs):
@@ -309,8 +320,7 @@ class FormFactorAnalysis(object):
         models = [model for model in models if model is not None]
         if len(models) >= 2:
             self.fitter = cf.CorrFitter(models=models)
-            fit = self.fitter.lsqfit(
-                data=self.ds, prior=self.prior, **fitter_kwargs)
+            fit = self.fitter.lsqfit(data=self.ds, prior=self.prior, **fitter_kwargs)
             if np.isnan(fit.chi2):
                 LOGGER.warning('Full joint fit failed.')
                 fit = None
