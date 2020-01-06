@@ -226,6 +226,42 @@ class ThreePoint(object):
         except ValueError as _:
             raise ValueError("Values in ydict must have same length.")
 
+    def new_avg(self, m_src, m_snk):
+        """
+        Computes a time-slice-averaged three-point correlation function.
+        Generalizes Eq. 38 of Bailey et al PRD 79, 054507 (2009)
+        [https://arxiv.org/abs/0811.3640] to work for non-adjacent sink times T.
+        """
+        def _combine(ratio):
+            """
+            Combines according to (R(t) + 2*R(t+1) + R(t+2)) / 4
+            """
+            return 0.25 * (
+                ratio
+                + 2.0*np.roll(ratio, -1, axis=0)
+                + np.roll(ratio, -2, axis=0)
+            )
+
+        c3bar = {}
+        t_snks = sorted(np.array(self.t_snks))
+        dt_snks = t_snks[1:] - t_snks[:-1]
+        # pylint: disable=invalid-name,protected-access
+        for dT, T in zip(dt_snks, t_snks):
+            t = np.arange(self.times.nt)
+            c3 = self.ydict[T]  # C(t,T)
+            ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk(T-t))
+            tmp = _combine(ratio)
+            # When dT is odd, average the results for T and T+dT.
+            # For the case dT=1, this average reduces to the cited equation.
+            # When dT is even, just use the result for T by itself
+            if bool(dT % 2): 
+                c3 = self.ydict[T+dT]  # C(t, T+dT)
+                ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T+dT-t))
+                tmp = 0.5 * (tmp + _combine(ratio))
+            c3bar[T] = tmp
+        # pylint: enable=invalid-name,protected-access
+        return c3bar
+
     def avg(self, m_src, m_snk):
         """
         Computes the time-slice-averaged three-point correlation function
