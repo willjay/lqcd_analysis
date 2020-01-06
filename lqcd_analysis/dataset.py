@@ -218,29 +218,12 @@ def normalization(ns, momentum, current, energy_src, m_snk):
     Bailey et al. "|V_ub| from B->pi l nu decays and (2+1)-flavor lattice QCD",
     [https://arXiv:1503.07839].
     """
-    if (momentum is None) or (current is None):
-        msg = "Unspecified momentum/current. Defaulting to unit normalization."
-        LOGGER.info(msg)
-        return 1.0
-
     p_vec = [2.0 * np.pi * float(pj) / ns for pj in momentum.lstrip("p")]
-    # Define conventional signs.
-    # They depend on the precise definition of the lattice current.
-    # In practice, they have been determined empirically to give a positive
-    # form factor.
-    sign = {
-        'S-S': +1.0,
-        'V4-V4': -1.0,
-        'V1-S': -1.0, 'V2-S': +1.0, 'V3-S': -1.0,
-        'T14-V4': +1.0, 'T24-V4': -1.0, 'T34-V4': +1.0,
-    }
     momentum_factor = {
         'V1-S': p_vec[0], 'V2-S': p_vec[1], 'V3-S': p_vec[2],
         'T14-V4': p_vec[0], 'T24-V4': p_vec[1], 'T34-V4': p_vec[2],
     }
     norm = 1.0
-    if current in sign:
-        norm *= sign[current]
     if current in momentum_factor:
         norm /= momentum_factor[current]
     # The tensor form factor has an additional kinematic prefactor, which
@@ -250,10 +233,6 @@ def normalization(ns, momentum, current, energy_src, m_snk):
         m_src = np.sqrt(energy_src**2.0 - np.dot(p_vec, p_vec))
         tensor_factor = (m_src + m_snk) / np.sqrt(2.0 * m_snk)
         norm *= tensor_factor
-    if np.isnan(norm):
-        msg = '[-] Normalization factor was a nan. Defaulting back to unity.'
-        LOGGER.warning(msg)
-        norm = 1.0
     return norm
 
 
@@ -496,6 +475,7 @@ class FormFactorDataset(object):
         r = self.r
         rbar = self.rbar
         for color, t_snk in zip(colors, sorted(r)):
+            t = range(0, t_snk)
             t = t[max(tmin, min(t)): min(tmax, max(t))]
             x = t
             if plot_sawtooth:
