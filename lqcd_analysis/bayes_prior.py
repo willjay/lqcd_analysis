@@ -114,7 +114,7 @@ class BasePrior(object):
 
     def _keys(self):
         for key in self.dict.keys():
-            if 'dE' in key:
+            if ('dE' in key) or (':a' in key):
                 yield 'log({0})'.format(key)
             else:
                 yield key
@@ -186,18 +186,18 @@ class MesonPrior(BasePrior):
         n = range(n_decay)
         prior['dE'] = [gv.gvar('0.5(1.5)') for _ in n]
         if 'a' in amps:
-            prior['a'] = [gv.gvar('1(1)') for _ in n]
+            prior['a'] = [gv.gvar('0.1(1.0)') for _ in n]
         if 'b' in amps:
-            prior['b'] = [gv.gvar('1(1)') for _ in n]
+            prior['b'] = [gv.gvar('0.1(1.0)') for _ in n]
 
         # Oscillating eneriges and amplitudes
         if n_oscillate > 0:
             no = range(n_oscillate)
             prior['dEo'] = [gv.gvar('1.0(1.5)') for _ in no]
             if 'ao' in amps:
-                prior['ao'] = [gv.gvar('1(1)') for _ in no]
+                prior['ao'] = [gv.gvar('0.1(1.0)') for _ in no]
             if 'bo' in amps:
-                prior['bo'] = [gv.gvar('1(1)') for _ in no]
+                prior['bo'] = [gv.gvar('0.1(1.0)') for _ in no]
 
         # Extract guesses for the ground-state energy and amplitude
         if ffit is not None:
@@ -340,7 +340,7 @@ class FormFactorPrior(BasePrior):
             val = ds.rbar[T_sink]
             local_max = max(sign * gv.mean(val[:T_sink - 2]))
             maxes.append(local_max)
-        r_guess = max(maxes) * 1.05
+        r_guess = sign * max(maxes) * 1.05
         return r_guess
 
     @staticmethod
