@@ -30,8 +30,16 @@ def effective_mass(data):
     backward-propagating states. It also work without modification both for
     Cosh-like and Sinh-like correlators.
     """
-    # TODO: Handle possible "RuntimeWarning: invalid value encountered in sqrt"
-    return np.arccosh((data[2:] + data[:-2]) / (2.0 * data[1:-1]))
+    cosh_m = (data[2:] + data[:-2]) / (2.0 * data[1:-1])
+    meff = np.zeros(len(cosh_m), dtype=gv._gvarcore.GVar)
+    # The domain of arccosh is [1, Infinity).
+    # Set entries outside of the domain to nans.
+    domain = (cosh_m > 1)
+    meff[domain] = np.arccosh(cosh_m[domain])
+    meff[~domain] = gv.gvar(np.nan)
+    return meff    
+#     # TODO: Handle possible "RuntimeWarning: invalid value encountered in sqrt"
+#     return np.arccosh((data[2:] + data[:-2]) / (2.0 * data[1:-1]))
 
 
 def _infer_tmax(ydata, noise_threshy):
@@ -88,7 +96,6 @@ class BaseTimes(object):
         return "BaseTimes(tmin={0},tmax={1},nt={2},tp={3})".\
             format(self.tmin, self.tmax, self.nt, self.tp)
 
-@utils.timing
 class TwoPoint(object):
     """TwoPoint correlation function."""
     def __init__(self, tag, ydata, noise_threshy=0.03, **time_kwargs):
