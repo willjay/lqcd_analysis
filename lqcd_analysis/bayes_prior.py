@@ -359,7 +359,7 @@ class FormFactorPrior(BasePrior):
             gvar, the estimate of the matrix element 'Vnn'
         """
         vnn = gv.mean(r_plateau / np.sqrt(2.0 * mass))
-        width = np.abs(0.5 * vnn)
+        width = np.abs(0.1 * vnn)
         return gv.gvar(vnn, width)
 
 
