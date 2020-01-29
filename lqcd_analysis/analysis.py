@@ -232,6 +232,7 @@ class FormFactorAnalysis(object):
     def run_sequential_fits(
             self, nstates, tmin_override=None,
             width=0.1, fractional_width=False,
+            prior=None,
             **fitter_kwargs):
         """
         Runs sequential fits.
@@ -239,8 +240,11 @@ class FormFactorAnalysis(object):
         the (central values of) the priors for the joint fit. The runs the
         joint fit.
         """
-        self.prior = bayes_prior.FormFactorPrior(
-            nstates, self.ds, positive_ff=self.positive_ff)
+        if prior is None:            
+            self.prior = bayes_prior.FormFactorPrior(
+                nstates, self.ds, positive_ff=self.positive_ff)
+        else:
+            self.prior = prior
         if tmin_override is not None:
             if tmin_override.src is not None:
                 self.ds.c2_src.times.tmin = tmin_override.src
@@ -253,7 +257,8 @@ class FormFactorAnalysis(object):
             **fitter_kwargs)
         self.fit_form_factor(nstates=nstates, **fitter_kwargs)
         self.collect_statistics()
-        self.r = convert_vnn_to_ratio(self.m_src, self.matrix_element)
+        if self.fits['full'] is not None:
+            self.r = convert_vnn_to_ratio(self.m_src, self.matrix_element)
 
     def mass(self, tag):
         """Gets the mass/energy of the ground state from full fit."""
@@ -281,7 +286,7 @@ class FormFactorAnalysis(object):
     @property
     def r_prior(self):
         src_tag = self.ds._tags.src
-        m_src = self.prior[f'{src_tag}:dE'][0]
+        m_src = gv.mean(self.prior[f'{src_tag}:dE'][0])
         matrix_element = self.prior['Vnn'][0, 0]
         return convert_vnn_to_ratio(m_src, matrix_element)
 
