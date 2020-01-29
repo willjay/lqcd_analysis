@@ -96,9 +96,10 @@ class BaseTimes(object):
         return "BaseTimes(tmin={0},tmax={1},nt={2},tp={3})".\
             format(self.tmin, self.tmax, self.nt, self.tp)
 
+
 class TwoPoint(object):
     """TwoPoint correlation function."""
-    def __init__(self, tag, ydata, noise_threshy=0.03, **time_kwargs):
+    def __init__(self, tag, ydata, noise_threshy=0.03, skip_fastfit=False, **time_kwargs):
         self.tag = tag
         self.ydata = ydata
         self.noise_threshy = noise_threshy
@@ -108,15 +109,30 @@ class TwoPoint(object):
         self.times = BaseTimes(tdata=tdata, **time_kwargs)
         self.times.tmax = _infer_tmax(ydata, noise_threshy)
         # Estimate the ground-state energy and amplitude
-        self.fastfit = fastfit.FastFit(
-            data=self.ydata[:self.times.tmax],
-            tp=self.times.tp,
-            tmin=self.times.tmin)
+        if skip_fastfit:
+            self.fastfit = None
+        else:
+            self.fastfit = fastfit.FastFit(
+                data=self.ydata[:self.times.tmax],
+                tp=self.times.tp,
+                tmin=self.times.tmin)
+        self._mass = None
 
+    def set_mass(self, mass):
+        self._mass = mass
+            
     @property
     def mass(self):
         """Estimate the mass using fastfit."""
-        return self.fastfit.E
+        if self._mass is not None:
+            return self._mass
+        if self.fastfit is not None:
+            return self.fastfit.E
+        msg = (
+           "Missing mass. No FastFit result, "
+           "and mass hasn't been set externally."
+        )
+        raise AttributeError(msg)
 
     @property
     def mass_avg(self):
@@ -226,7 +242,7 @@ class ThreePoint(object):
         except ValueError as _:
             raise ValueError("Values in ydict must have same length.")
 
-    def new_avg(self, m_src, m_snk):
+    def avg(self, m_src, m_snk):
         """
         Computes a time-slice-averaged three-point correlation function.
         Generalizes Eq. 38 of Bailey et al PRD 79, 054507 (2009)
@@ -241,15 +257,15 @@ class ThreePoint(object):
                 + 2.0*np.roll(ratio, -1, axis=0)
                 + np.roll(ratio, -2, axis=0)
             )
-
+        
+        t = np.arange(self.times.nt)
         c3bar = {}
-        t_snks = sorted(np.array(self.t_snks))
+        t_snks = np.sort(np.array(self.t_snks))
         dt_snks = t_snks[1:] - t_snks[:-1]
         # pylint: disable=invalid-name,protected-access
         for dT, T in zip(dt_snks, t_snks):
-            t = np.arange(self.times.nt)
-            c3 = self.ydict[T]  # C(t,T)
-            ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk(T-t))
+            c3 = self.ydict[T]  # C(t, T)
+            ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T-t))
             tmp = _combine(ratio)
             # When dT is odd, average the results for T and T+dT.
             # For the case dT=1, this average reduces to the cited equation.
@@ -258,11 +274,11 @@ class ThreePoint(object):
                 c3 = self.ydict[T+dT]  # C(t, T+dT)
                 ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T+dT-t))
                 tmp = 0.5 * (tmp + _combine(ratio))
-            c3bar[T] = tmp
+            c3bar[T] = tmp * np.exp(-m_src*t) * np.exp(-m_snk*(T-t))
         # pylint: enable=invalid-name,protected-access
         return c3bar
 
-    def avg(self, m_src, m_snk):
+    def old_avg(self, m_src, m_snk):
         """
         Computes the time-slice-averaged three-point correlation function
         according to Eq. 38 of Bailey et al PRD 79, 054507 (2009)
