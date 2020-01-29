@@ -13,6 +13,7 @@ import seaborn as sns
 from . import shrink
 from . import correlator
 from . import visualize
+from . import utils
 
 LOGGER = logging.getLogger(__name__)
 
@@ -180,7 +181,8 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
     return final_cov
 
 
-def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None):
+def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None,
+                  noerror=False):
     """
     Builds a correlated dataset, folding periodic correlators,
     binning data, and applying the specified shrinkage to the
@@ -206,7 +208,14 @@ def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None):
                 'ERROR: bad (key, value), (%s,%s)',
                 str(key), str(value)
             )
-    # Correlate the data, including binning and shrinkage
+    # No errors, so no need to bin / shrink
+    if noerror:
+        if (binsize != 1) or (shrink_choice is not None):
+            LOGGER.warning(
+                "When noerror=True, binsize and shrink_choice are ignored."
+            )
+        return gv.dataset.avg_data(tmp, noerror=True)
+    # Otherwise correlate the data, including binning and shrinkage
     ds_binned = _correlate(tmp, binsize=binsize, shrink_choice=shrink_choice)
     return ds_binned
 
@@ -246,7 +255,7 @@ class FormFactorDataset(object):
         noise_threshy: float, noise-to-signal ratio for cutting on the data.
             Default is 0.03, i.e., 3 percent.
     """
-    def __init__(self, ds, tags=None, noise_threshy=0.03, sign=1.0):
+    def __init__(self, ds, tags=None, noise_threshy=0.03, sign=1.0, skip_fastfit=False):
         self.sign = sign / np.abs(sign)
         # Start with the three-point function(s).
         # Infer nt from the three-point function in case the two-point
@@ -263,7 +272,7 @@ class FormFactorDataset(object):
         self.c2 = {}
         for tag in self._tags:
             self.c2[tag] = correlator.TwoPoint(
-                tag, ds[tag], noise_threshy, nt=nt
+                tag, ds[tag], noise_threshy, nt=nt, skip_fastfit=skip_fastfit
             )
         self._verify_tdata()
 
@@ -276,6 +285,11 @@ class FormFactorDataset(object):
             if not np.all(nt == nts[0]):
                 raise ValueError('tdata does not match across correlators')
 
+    def set_masses(self, m_src, m_snk):
+        """Update the masses of the source and sink manually."""
+        self.c2[self._tags.src].set_mass(m_src)
+        self.c2[self._tags.snk].set_mass(m_snk)
+                
     @property
     def tdata(self):
         """ Get tdata from 0 to the smallest tmax. """
