@@ -247,6 +247,14 @@ class ThreePoint(object):
         Computes a time-slice-averaged three-point correlation function.
         Generalizes Eq. 38 of Bailey et al PRD 79, 054507 (2009)
         [https://arxiv.org/abs/0811.3640] to work for non-adjacent sink times T.
+        This average is useful for suppressing contamination from
+        opposite-parity states.
+        Args:
+            m_src, m_snk: the masses (or energy) of the ground states
+                associated with the source at time t=0 and and the sink at
+                time t=t_snk. The literature often refers to t_snk as "T".
+        Returns:
+            c3bar: dict of arrays with the time-slice-averaged correlators
         """
         def _combine(ratio):
             """
@@ -275,59 +283,6 @@ class ThreePoint(object):
                 ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T+dT-t))
                 tmp = 0.5 * (tmp + _combine(ratio))
             c3bar[T] = tmp * np.exp(-m_src*t) * np.exp(-m_snk*(T-t))
-        # pylint: enable=invalid-name,protected-access
-        return c3bar
-
-    def old_avg(self, m_src, m_snk):
-        """
-        Computes the time-slice-averaged three-point correlation function
-        according to Eq. 38 of Bailey et al PRD 79, 054507 (2009)
-        [https://arxiv.org/abs/0811.3640]. This average is useful for
-        suppressing contamination from opposite-parity states.
-        Args:
-            m_src, m_snk: the masses (or energy) of the ground states
-                associated with the source at time t=0 and and the sink at
-                time t=t_snk. The literature often refers to t_snk as "T".
-        Returns:
-            c3bar: dict of arrays with the time-slice-averaged correlators
-        """
-        nt = self.times.nt
-        c3bar = {}
-        t_snks = list(self.t_snks)
-        # pylint: disable=invalid-name,protected-access
-        for T in t_snks:
-            if T+1 not in t_snks:
-                # Need T and T+1, skip if missing
-                continue
-            c3 = self.ydict[T]                        # C(t,T)
-            c3_tp1 = np.roll(c3, -1, axis=0)          # C(t+1,T)
-            c3_tp2 = np.roll(c3, -2, axis=0)          # C(t+2,T)
-            c3_Tp1 = self.ydict[T+1]                  # C(t,T+1)
-            c3_Tp1_tp1 = np.roll(c3_Tp1, -1, axis=0)  # C(t+1,T+1)
-            c3_Tp1_tp2 = np.roll(c3_Tp1, -2, axis=0)  # C(t+2,T+1)
-            # Storage for smeared correlator
-            tmp = np.empty((nt, ), dtype=gv._gvarcore.GVar)
-            for t in range(nt):
-                try:
-                    tmp[t] = c3[t] /\
-                        (np.exp(-m_src * t) * np.exp(-m_snk * (T - t)))
-                    tmp[t] += c3_Tp1[t] /\
-                        (np.exp(-m_src * t) * np.exp(-m_snk * (T + 1 - t)))
-                    tmp[t] += 2. * c3_tp1[t] /\
-                        (np.exp(-m_src * (t + 1)) *
-                         np.exp(-m_snk * (T - (t + 1))))
-                    tmp[t] += 2. * c3_Tp1_tp1[t] /\
-                        (np.exp(-m_src * (t + 1)) * np.exp(-m_snk * (T - t)))
-                    tmp[t] += c3_tp2[t] /\
-                        (np.exp(-m_src * (t + 2)) *
-                         np.exp(-m_snk * (T - (t + 2))))
-                    tmp[t] += c3_Tp1_tp2[t] /\
-                        (np.exp(-m_src * (t + 2)) *
-                         np.exp(-m_snk * (T - t - 1)))
-                    tmp[t] *= np.exp(-m_src * t) * np.exp(-m_snk * (T - t))
-                except IndexError:
-                    tmp[t] = 0.0
-            c3bar[T] = tmp / 8.
         # pylint: enable=invalid-name,protected-access
         return c3bar
 
