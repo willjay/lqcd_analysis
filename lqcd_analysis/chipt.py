@@ -4,6 +4,7 @@ heavy meson (rooted staggered) chiral perturbation theory.
 """
 import re
 import numpy as np
+from . import analysis
 
 def get_value(dict_list, key):
     """
@@ -13,7 +14,7 @@ def get_value(dict_list, key):
         value = adict.get(key)
         if value is not None:
             return value
-    raise KeyError("key not found within dict_list.")
+    raise KeyError(f"Key '{key}' not found within dict_list.")
 
 
 def check_duplicate_keys(dict_list):
@@ -29,15 +30,18 @@ def check_duplicate_keys(dict_list):
         raise ValueError("Non-unique keys found in dict_list")
 
 
-def valid_name(coefficient_name):
+def valid_name(coefficient_name, continuum=False):
     """
     Checks for a valid coefficient name for an "analytic term."
     Some examples of valid coefficients are: c_l, c_h2, c_leha4
     Args:
         coefficient_name: str
+        continuum: whether or not to accept terms with 'a' for lattice spacing
     Returns: 
         bool, whether the name is valid
     """
+    if continuum:
+        return bool(re.match(r"c_([lhE]\d{0,})+", coefficient_name))
     return bool(re.match(r"c_([lhEa]\d{0,})+", coefficient_name))
 
 
@@ -61,7 +65,7 @@ def parse_name(coefficient_name):
     return result
 
 
-def analytic_terms(chi, params):
+def analytic_terms(chi, params, continuum=False):
     """
     Computes the sum of analytic terms. Each term is a product of the form:
     coefficient * (chi_l**m) * (chi_h**n) * (chi_a**p) * (chi_E**q).
@@ -72,12 +76,13 @@ def analytic_terms(chi, params):
         chi: ChiralExpansionParameters
         params: dict of parameters. Parameters that are invalid coefficient 
             names for analytic terms are simply skipped.
+        continuum: bool, whether or not to skip terms involving chi_a
     Returns:
         float or array with the result
     """
     result = 0.0
     for name, value in params.items():
-        if valid_name(name):
+        if valid_name(name, continuum):
             term = value
             for subscript, power in parse_name(name):
                 term *= chi[subscript]**power  # Subscript is l, h, a, or E
@@ -88,12 +93,100 @@ def analytic_terms(chi, params):
 def chiral_log_I1(mass, lam):
     """
     Computes the chiral logarithm function I_1.
+    See Eq. 46 of Aubin and Bernard
+    "Heavy-light semileptonic decays in staggered chiral perturbation theory"
+    Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]
     """
     lam2 = lam**2.0
     mass2 = mass**2.0
     return mass2 * np.log(mass2 / lam2)
 
 
+def chiral_log_I2(mass, delta, lam):
+    """
+    Computes the chiral logarithm function I_2.
+    See Eq. 47 of Aubin and Bernard,
+    "Heavy-light semileptonic decays in staggered chiral perturbation theory"
+    Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]    
+    """
+    lam2 = lam**2.0
+    mass2 = mass**2.0
+    delta2 = delta**2.0
+    x = m/delta
+    return 2.0 * delta2 * (1.0 - np.log(mass2/lam2) - 2.0 * chiral_log_F(x))
+
+
+def chiral_log_J1(mass, delta, lam):
+    """
+    Computes the chiral logarithm function J_1.
+    See Eq. 48 of Aubin and Bernard,
+    "Heavy-light semileptonic decays in staggered chiral perturbation theory"
+    Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]    
+    """
+    mass2 = mass**2.0
+    delta2 = delta**2.0
+    lam2 = lam**2.0
+    x = mass/delta
+    return (-mass2 + 2./3. * delta2) * np.log(mass2/lam2)\
+        + (4./3.) * (delta2 - mass2) * chiral_log_F(x)\
+        - (10./9.) * delta2\
+        + (4./3.) * mass2
+
+
+def chiral_log_F(x):
+    """
+    Computes the function F(x) appearing alongside chiral logarithms.
+    See Eq. 49 of Aubin and Bernard,
+    "Heavy-light semileptonic decays in staggered chiral perturbation theory"
+    Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]
+    """
+    if x < 0:
+        raise ValueError("chiral_log_F(x) needs x >= 0.")
+    if x > 1: 
+        root = np.sqrt(x**2.0 - 1)
+        return -1.0 * root * np.arctan(root)  # Note: Usual inverse tangent
+    else:  # x in [0,1]
+        root = np.sqrt(1.0 - x**2.0)
+        return root * np.arctanh(root)  # Note: hyperbolic inverse tangent
+
+
+def chiral_log_J1sub(mass, delta, lam):
+    """
+    Computes the subtracted chiral logarithm function J_1, which cancels the 
+    singularity when delta --> 0.
+    See Eq. 51 of Aubin and Bernard,
+    "Heavy-light semileptonic decays in staggered chiral perturbation theory"
+    Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]    
+    """
+    factor = 2.0 * np.pi / 3.0
+    mass3 = mass**3.0
+    return chiral_log_J1(mass, delta, lam) - factor * mass3 / delta
+           
+
+def residue_R(mass, mu, j):
+    """
+    Computes the Euclidean residue function R^[n,k]_j({mass},{mu}).
+    See Eq. (B4) of Aubin and Bernard,
+    "Heavy-light semileptonic decays in staggered chiral perturbation theory"
+    Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]   
+    """
+    n = len(mass)
+    k = len(mu) if hasattr(mu, '__len__') else 1
+    if n <= k:
+        raise ValueError(f"residue_r requires n > k, found n={n}, k={k}.")
+    if (j < 1) or (j > n): 
+        raise ValueError(f"residue_R requires j in 0, 1, ..., n, found j={j}")
+    idx_j = j-1  # Convert from physics 1-indexing to python 0-indexing
+    mu2 = np.array(mu)**2.0
+    mass2 = np.array(mass)**2.0
+    mass2hat = np.delete(mass2, idx_j)  # mass2 but without the jth element
+    upper = np.product(mu2 - mass2[idx_j])
+    lower = np.product(mass2hat - mass2[idx_j])
+    if np.isclose(lower, 0.0, rtol=1e-6):
+        raise ValueError(f"Singular residue_R with j={j}")
+    return upper / lower
+        
+    
 def form_factor_tree_level(gpi, fpi, energy, delta):
     """
     Computes the tree-level expression for the form factor.
@@ -139,34 +232,63 @@ class StaggeredPions:
         mpi5: mass of the pseudoscalar taste "pion", mpi5 =  M_{pi,5}.
         splittings: dict of the staggered taste splittings,
             Delta_xi and Hairpin_{V(A)}
+        continuum: bool, whether or not to use continuum expressions (where the
+            taste splittings vanish)
     """
 
-    def __init__(self, mpi5, params):
-        self._params = params
-        self.mpi_I = self._mpi(mpi5, taste='I')
-        self.mpi_P = self._mpi(mpi5, taste='P')
-        self.mpi_V = self._mpi(mpi5, taste='V')
-        self.mpi_A = self._mpi(mpi5, taste='A')
-        self.mpi_T = self._mpi(mpi5, taste='T')
-        self.meta_V = self._meta(mpi5, taste='V')
-        self.meta_A = self._meta(mpi5, taste='A')
+    def __init__(self, x, params, continuum=False):
+        self.dict_list = [x, params]
+        self.continuum = continuum
+        self.mpi_I = self._mpi(taste='I')
+        self.mpi_P = self._mpi(taste='P')
+        self.mpi_V = self._mpi(taste='V')
+        self.mpi_A = self._mpi(taste='A')
+        self.mpi_T = self._mpi(taste='T')
+        self.meta_V = self._meta(taste='V')
+        self.meta_A = self._meta(taste='A')
 
-    def _mpi(self, mpi5, taste):
+    def _mpi(self, taste):
         """
-        Computes the pion mass in a different taste, given
-        the mass of the pseuoscalar taste pion mpi5 = M_{pi,5}.
-        """
-        delta = self._params[f'Delta_{taste}']
-        return np.sqrt(mpi5**2.0 + delta)
+        Computes the pion mass in a different taste, given the mass of the 
+        "pion" with pseuoscalar taste:
+        m^2_{ij,xi} = mu (m_i + m_j) + a^2 Delta_xi
+        where
+        mu (m_i + m_j) = "pion with pseudoscalar taste" = m^2_{ij,5}.
 
-    def _meta(self, mpi5, taste):
+        Eq. (A8) of [https://arxiv.org/abs/1901.02561], A. Bazavov et al.,
+        PRD 100 (2019) no.3, 034501 "Bs -> Klnu decay from lattice QCD."
         """
-        Computes the eta mass in a different taste, given
-        the mass of the pseudoscalar taste pion mpi5 = M_{pi},5}.
+        mpi5 = get_value(self.dict_list, f'mpi5')
+        if self.continuum:
+            return mpi5
+        delta = get_value(self.dict_list, f'Delta_{taste}')
+        arg = mpi5**2.0 + delta
+        if arg < 0:
+            raise ValueError(
+                f"Negative argument encountered using 'Delta_{taste}'."
+            )
+        return np.sqrt(arg)
+
+    def _meta(self, taste):
         """
-        mpi = self._mpi(mpi5, taste)
-        hairpin = self._params[f'Hairpin_{taste}']
-        return np.sqrt(mpi**2.0 + 0.5 * hairpin)
+        Computes the eta mass in a different taste, given the mass of the "pion"
+        with pseudoscalar taste.
+        m^2_{eta,V(A)} = m^2_{uu,V(A)} + 1/2 a^2 delta^prime_{V(A)},
+        where
+        "a^2 delta^prime_{V(A)}" = "Hairpin_V(A)".
+        Eq. (A5b) of [https://arxiv.org/abs/1901.02561], A. Bazavov et al.,
+        PRD 100 (2019) no.3, 034501 "Bs -> Klnu decay from lattice QCD."
+        """
+        mpi = self._mpi(taste)
+        if self.continuum: 
+            return mpi
+        hairpin = get_value(self.dict_list, f'Hairpin_{taste}') 
+        arg = mpi**2.0 + 0.5 * hairpin
+        if arg < 0:
+            raise ValueError(
+                f"Negative argument encountered using 'Hairpin_{taste}'."
+            )
+        return np.sqrt(arg)
 
     def __str__(self):
         return (
@@ -325,13 +447,46 @@ class FormFactorData:
             f"mq={self.quark_masses})"
         )
 
+    def unpackage_quark_masses(self):
+        """
+        Unpackages a pair of quark masses associated with the daughter meson (a
+        K or pi). When the daughter is a pion, the masses are equal, and we set
+        m_heavy to zero, since the chiral fit should NOT include any analytic 
+        dependence on the heavy "strange quark mass."
+        """
+        (m_light, m_heavy) = np.sort(self.quark_masses)
+        if m_heavy == m_light:
+            m_heavy = 0.0
+        return m_light, m_heavy
+        
+    def unpackage_ydata(self, m_daughter):
+        """
+        Unpackages ydata stored as a dict into arrays of x and y data.
+        Example: ydata = {'p000': value0, 'p100': value1, ...}
+        Args:
+            m_daughter: float, mass of the daughter K/pi
+        Returns:
+            x,y : (boosted energy of the daughter, form factor values)
+        """
+        y = np.zeros(len(self.ydata), dtype=object)
+        x = np.zeros(len(self.ydata), dtype=object)
+        for idx, (ptag, form_factor) in enumerate(self.ydata.items()):
+            p2 = analysis.p2(ptag, self.ns)
+            energy = np.sqrt(m_daughter**2.0 + p2)
+            y[idx] = form_factor
+            x[idx] = energy
+        idxs = np.argsort(x)
+        return x[idxs], y[idxs]    
+    
 
 class ChiralModel:
     """
     General chiral model for semileptonic decays of B and D mesons.
     """
-    def __init__(self, form_factor_name, process, lam):
-        valid_names = ['f_parallel', 'f_perp', 'f_0', 'f_T']
+    def __init__(self, form_factor_name, process, lam, continuum=False):
+        valid_names = [
+            'f_parallel', 'f_\parallel', 'f_perp', 'f_\perp', 'f_0', 'f_T'
+        ]
         valid_processes = [
             'D to pi', 'B to pi',
             'D to K', 'B to K',
@@ -344,20 +499,22 @@ class ChiralModel:
         self.form_factor_name = form_factor_name
         self.process = process
         self.lam = lam
+        self.continuum = continuum
 
     def model(self, *args):
         raise NotImplementedError(
             "model not implemented for generic chiral model"
         )
 
-    def __call__(self, x, params):
-        return self.model(x, params)
+    def __call__(self, *args):
+        return self.model(*args)
 
     def __str__(self):
         return (
             f"{self.model_type}({self.process}; "
             f"{self.form_factor_name}; "
-            f"Lambda_UV={self.lam})"
+            f"Lambda_UV={np.round(self.lam, decimals=4)}; "
+            f"continuum={self.continuum})"
         )
 
 
@@ -365,8 +522,8 @@ class HardSU2Model(ChiralModel):
     """
     Model for form factor data in hard K/pi limit of SU(2) EFT.
     """
-    def __init__(self, form_factor_name, process, lam):
-        super().__init__(self, form_factor_name, process, lam)
+    def __init__(self, form_factor_name, process, lam, continuum=False):
+        super().__init__(form_factor_name, process, lam, continuum)
         self.model_type = "HardSU2Model"
 
     def delta_logs(self, fpi, pions):
@@ -412,21 +569,20 @@ class HardSU2Model(ChiralModel):
             raise TypeError(
                 "Please specify either (x, params) or params as arguments."
             )
-        x, params = args if len(args) == 2 else ({}, args)
+        x, params = args if len(args) == 2 else ({}, args[0])
         dict_list = [x, params]
         # Extract values from inputs
         c_0 = get_value(dict_list, 'c0')
         gpi = get_value(dict_list, 'g')
         fpi = get_value(dict_list, 'fpi')
-        mpi5 = get_value(dict_list, 'mpi5')
         energy = get_value(dict_list, 'E')
         delta = get_value(dict_list, 'delta_pole')
         # Get the chiral logarithms
-        pions = StaggeredPions(mpi5, params)
+        pions = StaggeredPions(x, params, self.continuum)
         logs = self.delta_logs(fpi, pions)
         # Get the analytic terms
         chi = ChiralExpansionParameters(x, params)
-        analytic = analytic_terms(chi, params)
+        analytic = analytic_terms(chi, params, self.continuum)
         # Leading-order x (corrections )
         return form_factor_tree_level(gpi, fpi, energy, delta)\
             * (c_0 * (1 + logs) + analytic)
