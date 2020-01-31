@@ -326,7 +326,7 @@ class FormFactorAnalysis(object):
         if len(models) >= 2:
             self.fitter = cf.CorrFitter(models=models)
             fit = self.fitter.lsqfit(data=self.ds, prior=self.prior, **fitter_kwargs)
-            if np.isnan(fit.chi2):
+            if np.isnan(fit.chi2) or np.isinf(fit.chi2):
                 LOGGER.warning('Full joint fit failed.')
                 fit = None
         else:
