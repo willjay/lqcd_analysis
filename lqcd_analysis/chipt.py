@@ -143,14 +143,21 @@ def chiral_log_F(x):
     "Heavy-light semileptonic decays in staggered chiral perturbation theory"
     Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]
     """
-    if x < 0:
+    if np.any(x) < 0:
         raise ValueError("chiral_log_F(x) needs x >= 0.")
-    if x > 1:
-        root = np.sqrt(x**2.0 - 1)
-        return -1.0 * root * np.arctan(root)  # Note: Usual inverse tangent
-    else:  # x in [0,1]
-        root = np.sqrt(1.0 - x**2.0)
-        return root * np.arctanh(root)  # Note: hyperbolic inverse tangent
+    result = np.zeros(x.shape, dtype=object)
+    # Region 1: x > 1
+    # Note the usual inverse tangent
+    region_1 = (x > 1)  # x > 1
+    root = np.sqrt(x[region_1]**2.0 - 1)
+    result[region_1] = -1.0 * root * np.arctan(root) 
+    # Region 2: x in [0, 1]
+    # Since x is positive, region 2 is the complement of region 1.
+    # Note: hyperbolic inverse tangent
+    region_2 = ~region_1
+    root = np.sqrt(1.0 - x[region_2]**2.0)
+    result[region_2] = root * np.arctanh(root) 
+    return result
 
 
 def chiral_log_J1sub(mass, delta, lam):
@@ -637,7 +644,7 @@ class HardSU2Model(ChiralModel):
 
 class SU2Model(ChiralModel):
     """
-    Model for form factor data in hard K/pi limit of SU(2) EFT.
+    Model for form factor data in SU(2) EFT.
     """
 
     def __init__(self, form_factor_name, process, lam, continuum=False):
