@@ -83,8 +83,8 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None):
         tags = dataset.Tags(src='light-light', snk='heavy-light')
     src = tags.src
     snk = tags.snk
-
-    if tfit.size:
+    
+    if tfit.size and np.all(np.isin(tfit, tdata)):
         a_pnames = (f'{src}:a', f'{src}:ao')
         b_pnames = (f'{snk}:a', f'{snk}:ao')
         dEa_pnames = (f'{src}:dE', f'{src}:dEo')
@@ -323,7 +323,7 @@ class FormFactorAnalysis(object):
         """Run the joint fit of 2- and 3-point functions for form factor."""
         models = [get_model(self.ds, tag, nstates) for tag in self.ds]
         models = [model for model in models if model is not None]
-        if len(models) >= 2:
+        if len(models) == len(set(self.ds.keys())):        
             self.fitter = cf.CorrFitter(models=models)
             fit = self.fitter.lsqfit(data=self.ds, prior=self.prior, **fitter_kwargs)
             if np.isnan(fit.chi2) or np.isinf(fit.chi2):
