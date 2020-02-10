@@ -245,6 +245,18 @@ def normalization(ns, momentum, current, energy_src, m_snk):
     return norm
 
 
+def scalar_normalization(MB, Mpi, mb, mq):
+    """
+    Computes the factor to convert the ratio "R" into the properly normalized
+    scalar form factor. For example, see Eq. (2.3) of 
+    Daping Du et al., "Phenomenology of semileptonic B-meson decays with form
+    factors from lattice QCD," Phys.Rev. D93 (2016) 034005 [arXiv:1510.02349].
+    The additional factor of Sqrt(2 MB) comes from the convention for the ratio 
+    "R".
+    """
+    return np.sqrt(2.0*MB) * (mb - mq) / (MB**2.0 - Mpi**2.0)
+
+
 class FormFactorDataset(object):
     """
     FormFactorDataset
