@@ -1,12 +1,18 @@
 """
-Functions and classes for modeling semi-leptonic decays of B- and D-mesons using
-heavy meson (rooted staggered) chiral perturbation theory.
+Functions and classes for modeling semi-leptonic decays of B- and D-mesons
+using chiral effective theory.
 """
+from abc import abstractmethod
+from collections import namedtuple
 import re
 import numpy as np
 from . import analysis
 
-# pylint: disable=invalid-name
+
+GoldstoneBosons = namedtuple(
+    'GoldstoneBosons',
+    ['pions', 'kaons', 'strangeons'],
+    defaults=[None, None, None])
 
 
 def get_value(dict_list, key):
@@ -93,7 +99,7 @@ def analytic_terms(chi, params, continuum=False):
     return result
 
 
-def chiral_log_I1(mass, lam):
+def chiral_log_i1(mass, lam):
     """
     Computes the chiral logarithm function I_1.
     See Eq. 46 of Aubin and Bernard
@@ -105,7 +111,7 @@ def chiral_log_I1(mass, lam):
     return mass2 * np.log(mass2 / lam2)
 
 
-def chiral_log_I2(mass, delta, lam):
+def chiral_log_i2(mass, delta, lam):
     """
     Computes the chiral logarithm function I_2.
     See Eq. 47 of Aubin and Bernard,
@@ -116,10 +122,10 @@ def chiral_log_I2(mass, delta, lam):
     mass2 = mass**2.
     delta2 = delta**2.
     x = mass / delta
-    return 2. * delta2 * (1. - np.log(mass2 / lam2) - 2. * chiral_log_F(x))
+    return 2. * delta2 * (1. - np.log(mass2 / lam2) - 2. * chiral_log_f(x))
 
 
-def chiral_log_J1(mass, delta, lam):
+def chiral_log_j1(mass, delta, lam):
     """
     Computes the chiral logarithm function J_1.
     See Eq. 48 of Aubin and Bernard,
@@ -131,12 +137,12 @@ def chiral_log_J1(mass, delta, lam):
     lam2 = lam**2.
     x = mass / delta
     return (-mass2 + 2. / 3. * delta2) * np.log(mass2 / lam2)\
-        + (4. / 3.) * (delta2 - mass2) * chiral_log_F(x)\
+        + (4. / 3.) * (delta2 - mass2) * chiral_log_f(x)\
         - (10. / 9.) * delta2\
         + (4. / 3.) * mass2
 
 
-def chiral_log_F(x):
+def chiral_log_f(x):
     """
     Computes the function F(x) appearing alongside chiral logarithms.
     See Eq. 49 of Aubin and Bernard,
@@ -144,7 +150,7 @@ def chiral_log_F(x):
     Phys.Rev. D76 (2007) 014002 [arXiv:0704.0795]
     """
     if np.any(x) < 0:
-        raise ValueError("chiral_log_F(x) needs x >= 0.")
+        raise ValueError("chiral_log_f(x) needs x >= 0.")
     result = np.zeros(x.shape, dtype=object)
     # Region 1: x > 1
     # Note the usual inverse tangent
@@ -160,7 +166,7 @@ def chiral_log_F(x):
     return result
 
 
-def chiral_log_J1sub(mass, delta, lam):
+def chiral_log_j1sub(mass, delta, lam):
     """
     Computes the subtracted chiral logarithm function J_1, which cancels the
     singularity when delta --> 0.
@@ -170,10 +176,10 @@ def chiral_log_J1sub(mass, delta, lam):
     """
     factor = 2. * np.pi / 3.
     mass3 = mass**3.
-    return chiral_log_J1(mass, delta, lam) - factor * mass3 / delta
+    return chiral_log_j1(mass, delta, lam) - factor * mass3 / delta
 
 
-def residue_R(mass, mu, j):
+def residue_r(mass, mu, j):
     """
     Computes the Euclidean residue function R^[n,k]_j({mass},{mu}).
     See Eq. (B4) of Aubin and Bernard,
@@ -216,25 +222,25 @@ def taste_average(fcn, pions, *args, **kwargs):
     ) / 16.
 
 
-def taste_average_I1(pions, lam):
+def taste_average_i1(pions, lam):
     """
     Computes the taste-averaged evaluation of I1.
     """
-    return taste_average(chiral_log_I1, pions, lam)
+    return taste_average(chiral_log_i1, pions, lam)
 
 
-def taste_average_I2(pions, delta, lam):
+def taste_average_i2(pions, delta, lam):
     """
     Computes the taste-averaged evaluation of I2.
     """
-    return taste_average(chiral_log_I2, pions, delta, lam)
+    return taste_average(chiral_log_i2, pions, delta, lam)
 
 
-def taste_average_J1sub(pions, delta, lam):
+def taste_average_j1sub(pions, delta, lam):
     """
     Computes the taste-averaged evaluation of J1sub.
     """
-    return taste_average(chiral_log_J1sub, pions, delta, lam)
+    return taste_average(chiral_log_j1sub, pions, delta, lam)
 
 
 def form_factor_tree_level(gpi, fpi, energy, delta, self_energy=0.):
@@ -285,7 +291,6 @@ class StaggeredPions:
         continuum: bool, whether or not to use continuum expressions (where the
             taste splittings vanish)
     """
-
     def __init__(self, x, params, base='mpi5', continuum=False):
         if base not in ['mpi5', 'mK5', 'mS5']:
             raise ValueError(
@@ -293,13 +298,16 @@ class StaggeredPions:
         self.base = base
         self.dict_list = [x, params]
         self.continuum = continuum
-        self.m_I = self._mpi(taste='I')
-        self.m_P = self._mpi(taste='P')
-        self.m_V = self._mpi(taste='V')
-        self.m_A = self._mpi(taste='A')
-        self.m_T = self._mpi(taste='T')
-        self.meta_V = self._meta(taste='V')
-        self.meta_A = self._meta(taste='A')
+        self.m_i = self._mpi(taste='I')
+        self.m_p = self._mpi(taste='P')
+        self.m_v = self._mpi(taste='V')
+        self.m_a = self._mpi(taste='A')
+        self.m_t = self._mpi(taste='T')
+        self.meta_v = self._meta(taste='V')
+        self.meta_a = self._meta(taste='A')
+        if base == 'mS5':
+            self.metaprime_v = self._metaprime(taste='V')
+            self.metaprime_a = self._metaprime(taste='A')
 
     def _mpi(self, taste):
         """
@@ -323,21 +331,33 @@ class StaggeredPions:
             )
         return np.sqrt(arg)
 
-    def _meta(self, taste):
+    def _metaprime(self, taste):
         """
-        Computes the eta mass in a different taste, given the mass of the "pion"
-        with pseudoscalar taste.
+        Compute the etaprime mass in a different taste, given the mass of the
+        "pion" with pseudoscalar taste.
+        """
+        if self.base in ('mpi5', 'mK5'):
+            raise ValueError(
+                "SU(2) theory does not have an etaprime state. "
+                "Please use base='mS5'."
+            )
+        return self._meta(taste, factor=0.25)
+
+    def _meta(self, taste, factor=0.5):
+        """
+        Computes the eta mass in a different taste, given the mass of the
+        "pion" with pseudoscalar taste.
         m^2_{eta,V(A)} = m^2_{uu,V(A)} + 1/2 a^2 delta^prime_{V(A)},
         where
         "a^2 delta^prime_{V(A)}" = "Hairpin_V(A)".
         Eq. (A5b) of [https://arxiv.org/abs/1901.02561], A. Bazavov et al.,
         PRD 100 (2019) no.3, 034501 "Bs -> Klnu decay from lattice QCD."
         """
-        m_ij5 = self._mpi(taste)
+        m_ij_xi = self._mpi(taste)
         if self.continuum:
-            return m_ij5
+            return m_ij_xi
         hairpin = self.__getitem__(f'Hairpin_{taste}')
-        arg = m_ij5**2. + 0.5 * hairpin
+        arg = m_ij_xi**2. + factor * hairpin
         if arg < 0:
             raise ValueError(
                 f"Negative argument encountered using 'Hairpin_{taste}'."
@@ -379,10 +399,9 @@ class ChiralExpansionParameters:
             test = (int(key in self.x) + int(key in self.params))
             if test == 1:
                 continue
-            elif test == 0:
+            if test == 0:
                 raise KeyError(f"Missing key {key}")
-            else:
-                raise KeyError(f"Key {key} present in x and params.")
+            raise KeyError(f"Key {key} present in x and params.")
 
     def _get(self, key):
         value = self.x.get(key)
@@ -439,16 +458,15 @@ class ChiralExpansionParameters:
     def __getitem__(self, key):
         if key in ('l', 'light'):
             return self.light
-        elif key in ('h', 'heavy'):
+        if key in ('h', 'heavy'):
             return self.heavy
-        elif key in ('E', 'energy'):
+        if key in ('E', 'energy'):
             return self.energy
-        elif key == 'a2':
+        if key == 'a2':
             return self.a2
-        elif key == 'a':
+        if key == 'a':
             return np.sqrt(self.a2)
-        else:
-            raise KeyError(f"Invalid key: {key}")
+        raise KeyError(f"Invalid key: {key}")
 
     def __str__(self):
         return (
@@ -542,7 +560,6 @@ class ChiralModel:
     """
     General chiral model for semileptonic decays of B and D mesons.
     """
-
     def __init__(self, form_factor_name, process, lam, continuum=False):
         valid_names = [
             'f_parallel', r'f_\parallel', 'f_perp', r'f_\perp', 'f_0', 'f_T'
@@ -561,13 +578,20 @@ class ChiralModel:
         self.lam = lam
         self.continuum = continuum
 
+    @abstractmethod
     def model(self, *args):
-        """
-        Computes the model function
-        """
-        raise NotImplementedError(
-            "model not implemented for generic chiral model"
-        )
+        """Computes the model function."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def delta_logs(self, *args, **kwargs):
+        """Computes the chiral logarithms."""
+        return NotImplementedError()
+
+    @abstractmethod
+    def self_energy(self, *args, **kwargs):
+        """Computes the self-energy correction."""
+        return NotImplementedError()
 
     def __call__(self, *args):
         return self.model(*args)
@@ -579,584 +603,3 @@ class ChiralModel:
             f"Lambda_UV={np.round(self.lam, decimals=4)}; "
             f"continuum={self.continuum})"
         )
-
-
-class HardSU2Model(ChiralModel):
-    """
-    Model for form factor data in hard K/pi limit of SU(2) EFT.
-    """
-    def __init__(self, form_factor_name, process, lam, continuum=False):
-        super().__init__(form_factor_name, process, lam, continuum)
-        self.model_type = "HardSU2Model"
-
-    def delta_logs(self, fpi, gpi, pions):
-        """
-        Computes the full chiral logarithm for SU(2) hard K/pi EFT.
-        Note:
-        In general, the functional form of the chiral logarithms depend on both
-        the process (e.g., 'D to pi') and the form factor (e.g., 'f_0').
-        However, in the hard K/pi limit of SU(2) EFT is special because the
-        functional form of the logarithms is "universal."
-        """
-        g2 = gpi**2.
-        def combo(mass):
-            return chiral_log_I1(mass, self.lam)
-        # Taste-averaged terms
-        result = -1. * taste_average_I1(pions, self.lam)
-        # Scalar pion terms
-        result += 0.25 * chiral_log_I1(pions.m_I, self.lam)
-        # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
-        # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
-        # Normalization
-        result /= (4. * np.pi * fpi)**2.
-        if self.process in ('B to pi', 'D to pi'):
-            return (1. + 3. * g2) * result
-        if self.process in ('B to K', 'D to K'):
-            return 3. * g2 * result
-        if self.process in ('Bs to K', 'Ds to K'):
-            raise NotImplementedError(
-                f"Logs not yet implemented for {self.process}."
-            )
-
-    def model(self, *args):
-        """
-        Compute the model functions
-        Args:
-            Accepts either a single positional argument 'params' or two
-            positional arguments ('x', 'params'). This non-standard interface
-            is designed to work well with lsqfit.nonlinear_fit, which accepts
-            functions with either interface, depending on whether or not the
-            "independent data" have errors.
-        Returns:
-            array with form factor data
-        """
-        # Unpackage x, params
-        if len(args) not in (1, 2):
-            raise TypeError(
-                "Please specify either (x, params) or params as arguments."
-            )
-        x, params = args if len(args) == 2 else ({}, args[0])
-        dict_list = [x, params]
-        # Extract values from inputs
-        c_0 = get_value(dict_list, 'c0')
-        gpi = get_value(dict_list, 'g')
-        fpi = get_value(dict_list, 'fpi')
-        energy = get_value(dict_list, 'E')
-        delta = get_value(dict_list, 'delta_pole')
-        # Get the chiral logarithms
-        pions = StaggeredPions(x, params, self.continuum)
-        logs = self.delta_logs(fpi, gpi, pions)
-        # Get the analytic terms
-        chi = ChiralExpansionParameters(x, params)
-        analytic = analytic_terms(chi, params, self.continuum)
-        # Leading-order x (corrections )
-        return form_factor_tree_level(gpi, fpi, energy, delta)\
-            * (c_0 * (1 + logs) + analytic)
-
-
-class SU2Model(ChiralModel):
-    """
-    Model for form factor data in SU(2) EFT.
-    """
-    def __init__(self, form_factor_name, process, lam, continuum=False):
-        super().__init__(form_factor_name, process, lam, continuum)
-        self.model_type = "SU2Model"
-
-    def model(self, *args):
-        """
-        Compute the model functions
-        Args:
-            Accepts either a single positional argument 'params' or two
-            positional arguments ('x', 'params'). This non-standard interface
-            is designed to work well with lsqfit.nonlinear_fit, which accepts
-            functions with either interface, depending on whether or not the
-            "independent data" have errors.
-        Returns:
-            array with form factor data
-        """
-        # Unpackage x, params
-        if len(args) not in (1, 2):
-            raise TypeError(
-                "Please specify either (x, params) or params as arguments."
-            )
-        x, params = args if len(args) == 2 else ({}, args[0])
-        dict_list = [x, params]
-        # Extract values from inputs
-        c_0 = get_value(dict_list, 'c0')
-        gpi = get_value(dict_list, 'g')
-        fpi = get_value(dict_list, 'fpi')
-        energy = get_value(dict_list, 'E')
-        delta = get_value(dict_list, 'delta_pole')
-        # Get the chiral logarithms
-        pions = StaggeredPions(x, params, self.continuum)
-        logs = self.delta_logs(fpi, gpi, pions, energy)
-        self_energy = self.self_energy(fpi, gpi, pions, energy)
-        # Get the analytic terms
-        chi = ChiralExpansionParameters(x, params)
-        analytic = analytic_terms(chi, params, self.continuum)
-        # Leading-order x (corrections )
-        return form_factor_tree_level(gpi, fpi, energy, delta, self_energy)\
-            * (c_0 * (1 + logs) + analytic)
-
-    def delta_logs(self, fpi, gpi, pions, energy):
-        """
-        Computes the full combination of chiral logarithms.
-        """
-        name = self.form_factor_name
-        if name in ('f_0', 'f_T'):
-            raise NotImplementedError("Logs not yet implementd for ")
-
-        if self.process in ('B to pi', 'D to pi'):
-            if name in ('f_parallel', r'f_\parallel'):
-                return self._log_B2pi_parallel(fpi, gpi, pions, energy)
-            if name in ('f_perp', r'f_\perp'):
-                return self._log_B2pi_perp(fpi, gpi, pions, energy)
-
-        if self.process in ('B to K', 'D to K'):
-            if name in ('f_parallel', r'f_\parallel'):
-                return self._log_B2K_parallel(fpi, gpi, pions)
-            if name in ('f_perp', r'f_\perp'):
-                return self._log_B2K_perp(fpi, gpi, pions)
-
-        if self.process in ('Bs to K', 'Ds to K'):
-            raise NotImplementedError(
-                f"Logs not yet implemented for {self.process}."
-            )
-        raise ValueError("Unrecognized process and/or form_factor_name")
-
-    def self_energy(self, fpi, gpi, pions, energy):
-        """
-        Computes the self-energy corrections.
-        """
-        if self.process in ('B to pi', 'D to pi'):
-            return self._self_energy_B2pi(fpi, gpi, pions, energy)
-        if self.process in ('B to K', 'D to K'):
-            return self._self_energy_B2K()
-        if self.process in ('Bs to K', 'Ds to K'):
-            raise NotImplementedError(
-                f"Self energy not yet implemented for {self.process}."
-            )
-        raise ValueError("Unrecognized process and/or form_factor_name")
-
-    def _log_B2pi_parallel(self, fpi, gpi, pions, energy):
-        """
-        Computes the chiral logarithm associated with the form factor f_parallel
-        for B to pi semileptonic decays. See Eq. (A27) in J. Bailey et al
-        "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
-        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.06235]
-        """
-        g2 = gpi**2.
-
-        def combo(mass):
-            return (
-                3. * (g2 - 1.) * chiral_log_I1(mass, self.lam)
-                - 4. * chiral_log_I2(mass, energy, self.lam)
-            )
-        # Taste-averaged terms
-        result = (1. - 3. * g2) * taste_average_I1(pions, self.lam)
-        result += 2. * taste_average_I2(pions, energy, self.lam)
-        # Scalar pion terms
-        result += (1. + 3. * g2) / 4. * chiral_log_I1(pions.m_I, self.lam)
-        # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
-        # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
-        # Normalization
-        result /= (4. * np.pi * fpi)**2.
-        return result
-
-    def _log_B2K_parallel(self, fpi, gpi, pions):
-        """
-        Computes the chiral logarithm associated with the form factor f_parallel
-        for B to K semileptonic decays. See Eq. (A28) in J. Bailey et al
-        "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
-        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.06235]
-        """
-        g2 = gpi**2.
-
-        def combo(mass):
-            return 3. * g2 * chiral_log_I1(mass, self.lam)
-        # Taste-averaged terms
-        result = -3. * g2 * taste_average_I1(pions, self.lam)
-        # Scalar pion terms
-        result += 3. * g2 / 4. * chiral_log_I1(pions.m_I, self.lam)
-        # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
-        # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
-        # Normalization
-        result /= (4. * np.pi * fpi)**2.
-        return result
-
-    def _log_B2pi_perp(self, fpi, gpi, pions, energy):
-        """
-        Computes the chiral logarithm associated with the form factor f_perp
-        for B to pi semileptonic decays. See Eq. (A32) in J. Bailey et al
-        "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
-        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.06235]
-        """
-        g2 = gpi**2.
-
-        def combo(mass):
-            return (
-                2. * g2 * chiral_log_J1sub(mass, energy, self.lam)
-                + (1. + 3. * g2) * chiral_log_I1(mass, self.lam)
-            )
-        # Taste-averaged terms
-        result = -(1. + 3. * g2) * taste_average_I1(pions, self.lam)
-        # Scalar pion terms
-        result -= 0.5 * g2 * chiral_log_J1sub(pions.m_I, energy, self.lam)
-        result += (1. + 3. * g2) / 4. * chiral_log_I1(pions.m_I, self.lam)
-        # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
-        # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
-        # Normalization
-        result *= 3 * g2 * energy / (4. * np.pi * fpi)**2.
-        return result
-
-    def _log_B2K_perp(self, fpi, gpi, pions):
-        """
-        Computes the chiral logarithm associated with the form factor f_perp
-        for B to K semileptonic decays. See Eq. (A34) in J. Bailey et al
-        "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
-        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.6235]
-        """
-        g2 = gpi**2.
-
-        def combo(mass):
-            return 3. * g2 * chiral_log_I1(mass, self.lam)
-        # Taste-averaged terms
-        result = -3. * g2 * taste_average_I1(pions, self.lam)
-        # Scalar pion terms
-        result += 3. * g2 / 4. * chiral_log_I1(pions.m_I, self.lam)
-        # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
-        # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
-        # Normalization
-        result /= (4. * np.pi * fpi)**2.
-        return result
-
-    def _self_energy_B2pi(self, fpi, gpi, pions, energy):
-        g2 = gpi**2.
-
-        def combo(mass):
-            return 2. * chiral_log_J1sub(mass, energy, self.lam)
-        # Taste-averaged terms
-        result = 2. * taste_average_J1sub(pions, energy, self.lam)
-        # Scalar pion terms
-        result -= 0.5 * chiral_log_J1sub(pions.m_I, energy, self.lam)
-        # Vector pion and eta terms
-        result -= 2. * (combo(pions.m_V) - combo(pions.meta_V))
-        # Axial pion and eta terms
-        result -= 2. * (combo(pions.m_A) - combo(pions.meta_A))
-        # Normalization
-        result *= -3. * g2 * energy / (4. * np.pi * fpi)**2.
-        return result
-
-    def _self_energy_B2K(self):
-        """
-        Computes the self-energy contribution for B to K semileptonic decays,
-        which happens to vanish in SU(2) EFT. See Eq. (A33) in J. Bailey et al
-        "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
-        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.6235]
-        """
-        return 0.
-
-
-class HardSU3Model(ChiralModel):
-    """
-    Model for form factor data in SU(2) EFT.
-    """
-
-    def __init__(self, form_factor_name, process, lam, continuum=False):
-        super().__init__(form_factor_name, process, lam, continuum)
-        self.model_type = "HardSU3Model"
-
-    def model(self, *args):
-        """
-        Compute the model functions
-        Args:
-            Accepts either a single positional argument 'params' or two
-            positional arguments ('x', 'params'). This non-standard interface
-            is designed to work well with lsqfit.nonlinear_fit, which accepts
-            functions with either interface, depending on whether or not the
-            "independent data" have errors.
-        Returns:
-            array with form factor data
-        """
-        # Unpackage x, params
-        if len(args) not in (1, 2):
-            raise TypeError(
-                "Please specify either (x, params) or params as arguments."
-            )
-        x, params = args if len(args) == 2 else ({}, args[0])
-        dict_list = [x, params]
-        # Extract values from inputs
-        c_0 = get_value(dict_list, 'c0')
-        gpi = get_value(dict_list, 'g')
-        fpi = get_value(dict_list, 'fpi')
-        energy = get_value(dict_list, 'E')
-        delta = get_value(dict_list, 'delta_pole')
-        # Get the chiral logarithms
-        pions = StaggeredPions(x, params, self.continuum)
-        kaons = StaggeredPions(x, params, self.continuum)
-        strangeons = StaggeredPions(x, params, self.continuum)
-        logs = self.delta_logs(fpi, gpi, pions, kaons, strangeons)
-        self_energy = self.self_energy()
-        # Get the analytic terms
-        chi = ChiralExpansionParameters(x, params)
-        analytic = analytic_terms(chi, params, self.continuum)
-        # Leading-order x (corrections )
-        return form_factor_tree_level(gpi, fpi, energy, delta, self_energy)\
-            * (c_0 * (1 + logs) + analytic)
-
-    def delta_logs(self, fpi, gpi, pions, kaons, strangeons):
-        """
-        Computes the full combination of chiral logarithms.
-        """
-        name = self.form_factor_name
-        if name in ('f_0', 'f_T'):
-            raise NotImplementedError("Logs not yet implementd for ")
-
-        if self.process in ('B to pi', 'D to pi'):
-            if name in ('f_parallel', r'f_\parallel'):
-                return self._log_B2pi_parallel(
-                    fpi, gpi, pions, kaons, strangeons)
-            if name in ('f_perp', r'f_\perp'):
-                return self._log_B2pi_perp(
-                    fpi, gpi, pions, kaons, strangeons)
-
-        if self.process in ('B to K', 'D to K'):
-            if name in ('f_parallel', r'f_\parallel'):
-                return self._log_B2K_parallel(
-                    fpi, gpi, pions, kaons, strangeons)
-            if name in ('f_perp', r'f_\perp'):
-                return self._log_B2K_perp(
-                    fpi, gpi, pions, kaons, strangeons)
-
-        if self.process in ('Bs to K', 'Ds to K'):
-            raise NotImplementedError(
-                f"Logs not yet implemented for {self.process}."
-            )
-        raise ValueError("Unrecognized process and/or form_factor_name")
-
-    def self_energy(self):
-        """
-        Compute the self-energy correction for B2X decays, which happens to
-        vanish in hard-pion SU(3) effective theory. This result is a special
-        case of Eq (A19) of the reference below, which follows after setting
-        J1sub to zero, following the replacement specified after Eq (36).
-        Reference:
-            J. Bailey et al., PRD 93, 025026 (2016)
-            "B -> Kl+l− decay form factors from three-flavor lattice QCD".
-            [https://arxiv.org/1509.06235].
-        """
-        return 0.
-
-    def _residue_combo(self, mass, mu):
-        """
-        Computes the combination of quantities involving the Euclidean
-        residue functions
-        """
-        return (residue_R(mass, mu, 1) * chiral_log_I1(mass[0], self.lam)
-                + residue_R(mass, mu, 2) * chiral_log_I1(mass[1], self.lam)
-                + residue_R(mass, mu, 3) * chiral_log_I1(mass[2], self.lam))
-
-    def _log_B2K(self, pions, kaons, strangeons, coefficients):
-        """
-        Computes the general form of the B2K chiral logarithms for vector form
-        factors f_parallel and f_perp, given a set of coefficients. In the
-        hard-kaon limit, both form factors have the same functional form up to
-        coefficients which depend on fpi and gpi. The implemented equations are
-        special cases of Eqs (A2) and (A22) the paper cited below. To obtain the
-        equations implemented here, apply the replacements specified after Eq
-        (A36) of the same paper to the general case.
-        Reference:
-            J. Bailey et al., PRD 93, 025026 (2016)
-            "B -> Kl+l− decay form factors from three-flavor lattice QCD".
-            [https://arxiv.org/1509.06235].
-        Args:
-            pions, kaons, strangeons: StaggeredPions objects
-            coefficients: dict of coefficients
-        Returns:
-            float, the value of the chiral logarithm
-        """
-        # Taste-averaged terms
-        result = coefficients['taste-averaged:pions'] *\
-            taste_average_I1(pions, self.lam)
-        result += coefficients['taste-averaged:kaons'] *\
-            taste_average_I1(kaons, self.lam)
-        result += coefficients['taste-averaged:strangeons'] *\
-            taste_average_I1(strangeons, self.lam)
-        # Scalar pion terms
-        result += coefficients['scalar:pions'] *\
-            chiral_log_I1(pions.m_I, self.lam)
-        result += coefficients['scalar:kaons'] *\
-            chiral_log_I1(pions.meta_I, self.lam)
-        result += coefficients['scalar:strangeons'] *\
-            chiral_log_I1(strangeons.m_I, self.lam)
-        # Vector pion and eta terms
-        # Note: mu=m_{S,V}
-        result += coefficients['vector:pions'] *\
-            self._residue_combo(
-                mass=[pions.m_V, pions.meta_V, metaprime_V],
-                mu=strangeons.m_V)
-        # Note: mu=m_{pi,V}
-        result += coefficients['vector:strangeons'] *\
-            self._residue_combo(
-                mass=[strangeons.m_V, pions.meta_V, metaprime_V],
-                mu=pions.m_V)
-        # Axial pion and eta terms
-        # Note: mu=m_{S,A}
-        result += coefficients['axial:pions'] *\
-            self._residue_combo(
-                [pions.m_A, pions.meta_A, metaprime_A],
-                strangeons.m_A)
-        # Note: mu=m_{pi,A}                
-        result += coefficients['vector:strangeons'] *\
-            self._residue_combo(
-                mass=[strangeons.m_A, pions.meta_A, metaprime_A],
-                mu=pions.m_A)
-        # Normalization
-        result *= coefficients['normalization']
-        return result
-
-    def _log_B2K_parallel(self, fpi, gpi, pions, kaons, strangeons):
-        """
-        Computes the chiral logarithm associated with the form factor f_parallel
-        for the decay B -> K. See _log_B2K(...) for more details.
-        Args:
-            fpi, gpi: float
-            pions, kaons, strangeons: StaggeredPions objects
-        Returns:
-            float, the value of the chiral logarithm
-        """
-        g2 = gpi**2.
-        coefficients = {
-            'taste-averaged:pions': -3. * g2,
-            'taste-averaged:kaons': -0.5 * (2. + 3. * g2),
-            'taste-averaged:strangeons': -0.5,
-            'scalar:pions': 0.75 * g2,
-            'scalar:eta': -(8. + 3. * g2) / 12.,
-            'scalar:strangeons': 0.5,
-            'vector:pions': 1.5 * g2,
-            'vector:strangeons': 0.5,
-            'axial:pions': 1.5 * g2,
-            'axial:strangeons': 0.5,
-            'normalization': 1 / (4. * np.pi * fpi)**2.,
-        }
-        return self._log_B2K(pions, kaons, strangeons, coefficients)
-
-    def _log_B2K_perp(self, fpi, gpi, pions, kaons, strangeons):
-        """
-        Computes the chiral logarithm associated with the form factor f_perp
-        for the decay B -> K. See _log_B2K(...) for more details.
-        Args:
-            fpi, gpi: float
-            pions, kaons, strangeons: StaggeredPions objects
-        Returns:
-            float, the value of the chiral logarithm
-        """
-        g2 = gpi**2.
-        coefficients = {
-            'taste-averaged:pions': -3. * g2,
-            'taste-averaged:kaons': -0.5 * (2. + 3. * g2),
-            'taste-averaged:strangeons': -0.5,
-            'scalar:pions': 0.75 * g2,
-            'scalar:eta': (4. + 3. * g2) / 12.,
-            'scalar:strangeons': 0.5,
-            'vector:pions': 1.5 * g2,
-            'vector:strangeons': 0.5,
-            'axial:pions': 1.5 * g2,
-            'axial:strangeons': 0.5,
-            'normalization': 1 / (4. * np.pi * fpi)**2.,
-        }
-        return self._log_B2K(pions, kaons, strangeons, coefficients)
-
-    def _log_B2pi(self, pions, kaons, strangeons, coefficients):
-        """
-        Computes the general form of the B2pi chiral logarithms for vector form
-        factors f_parallel and f_perp, given a set of coefficients. In the
-        hard-kaon limit, both form factors have the same functional form up to
-        coefficients which depend on fpi and gpi. The implemented equations are
-        special cases of Eqs (A1) and (A20) the paper cited below. To obtain the
-        equations implemented here, apply the replacements specified after Eq
-        (A36) of the same paper to the general case.
-        Reference:
-            J. Bailey et al., PRD 93, 025026 (2016)
-            "B -> Kl+l− decay form factors from three-flavor lattice QCD".
-            [https://arxiv.org/1509.06235].
-        Args:
-            pions, kaons, strangeons: StaggeredPions objects
-            coefficients: dict of coefficients
-        Returns:
-            float, the value of the chiral logarithm
-        """
-        # Taste-averaged terms
-        result = coefficients['taste-averaged'] * (
-            2. * taste_average_I1(pions, self.lam)
-            + taste_average_I1(kaons, self.lam)
-        )
-        # Scalar pion terms
-        result += coefficients['scalar'] * (
-            3. * chiral_log_I1(pions.m_I, self.lam)
-            - chiral_log_I1(meta_I, self.lam)
-        )
-        # Vector pion and eta terms
-        result += coefficients['vector'] * self._residue_combo(
-            mass=[pions.m_V, pions.meta_V, metaprime_V],
-            mu=strangeons.m_V)
-
-        # Axial pion and eta terms
-        result += coefficients['axial'] * self._residue_combo(
-            mass=[pions.m_A, pions.meta_A, metaprime_A],
-            mu=strangeons.m_A)
-        # Normalization
-        result *= coefficients['normalization']
-        return result
-
-    def _log_B2pi_parallel(self, fpi, gpi, pions, kaons, strangeons):
-        """
-        Computes the chiral logarithm associated with the form factor f_parallel
-        for the decay B -> pi See _log_B2pi(...) for more details.
-        Args:
-            fpi, gpi: float
-            pions, kaons, strangeons: StaggeredPions objects
-        Returns:
-            float, the value of the chiral logarithm
-        """
-        g2 = gpi**2.
-        cofficients = {
-            'taste-averaged': -(1. + 3. * g2) / 2.,
-            'scalar': (1. + 3. * g2) / 12.,
-            'vector': 1.5 * (1. + g2) * pions['Hairpin_V'],
-            'axial': 1.5 * (1. + g2) * pions['Hairpin_A'],
-            'normalization': 1 / (4. * np.pi * fpi)**2.,
-        }
-        return self._log_B2pi(pions, kaons, strangeons, cofficients)
-
-    def _log_B2pi_perp(self, fpi, gpi, pions, kaons, strangeons):
-        """
-        Computes the chiral logarithm associated with the form factor f_perp
-        for the decay B -> pi See _log_B2pi(...) for more details.
-        Args:
-            fpi, gpi: float
-            pions, kaons, strangeons: StaggeredPions objects
-        Returns:
-            float, the value of the chiral logarithm
-        """
-        g2 = gpi**2.
-        cofficients = {
-            'taste-averaged': -(1. + 3. * g2) / 2.,
-            'scalar': (1. + 3. * g2) / 12.,
-            'vector': (1. + 3. * g2) / 2. * pions['Hairpin_V'],
-            'axial': (1. + 3. * g2) / 2. * pions['Hairpin_A'],
-            'normalization': 1 / (4. * np.pi * fpi)**2.,
-        }
-        return self._log_B2pi(pions, kaons, strangeons, cofficients)
-
-# pylint: enable=invalid-name

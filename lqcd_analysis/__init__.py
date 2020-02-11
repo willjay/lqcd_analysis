@@ -6,3 +6,6 @@ from . import bayes_prior
 from . import shrink
 from . import visualize
 from . import resample
+from . import chipt
+from . import su2
+from . import su3
