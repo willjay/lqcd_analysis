@@ -148,33 +148,33 @@ class HardSU3Model(BaseSU3Model):
             chipt.taste_average_i1(strangeons, self.lam)
         # Scalar pion terms
         result += coefficients['scalar:pions'] *\
-            chipt.chiral_log_i1(pions.m_I, self.lam)
+            chipt.chiral_log_i1(pions.m_i, self.lam)
         result += coefficients['scalar:kaons'] *\
-            chipt.chiral_log_i1(pions.meta_I, self.lam)
+            chipt.chiral_log_i1(pions.meta_i, self.lam)
         result += coefficients['scalar:strangeons'] *\
-            chipt.chiral_log_i1(strangeons.m_I, self.lam)
+            chipt.chiral_log_i1(strangeons.m_i, self.lam)
         # Vector pion and eta terms
         # Note: mu=m_{S,V}
         result += coefficients['vector:pions'] *\
             self._residue_combo(
-                mass=[pions.m_V, pions.meta_V, strangeons.metaprime_V],
-                mu=strangeons.m_V)
+                mass=[pions.m_v, pions.meta_v, strangeons.metaprime_v],
+                mu=strangeons.m_v)
         # Note: mu=m_{pi,V}
         result += coefficients['vector:strangeons'] *\
             self._residue_combo(
-                mass=[strangeons.m_V, pions.meta_V, strangeons.metaprime_V],
-                mu=pions.m_V)
+                mass=[strangeons.m_v, pions.meta_v, strangeons.metaprime_v],
+                mu=pions.m_v)
         # Axial pion and eta terms
         # Note: mu=m_{S,A}
         result += coefficients['axial:pions'] *\
             self._residue_combo(
-                [pions.m_A, pions.meta_A, strangeons.metaprime_A],
-                strangeons.m_A)
+                [pions.m_a, pions.meta_a, strangeons.metaprime_a],
+                strangeons.m_a)
         # Note: mu=m_{pi,A}
         result += coefficients['vector:strangeons'] *\
             self._residue_combo(
-                mass=[strangeons.m_A, pions.meta_A, strangeons.metaprime_A],
-                mu=pions.m_A)
+                mass=[strangeons.m_a, pions.meta_a, strangeons.metaprime_a],
+                mu=pions.m_a)
         # Normalization
         result *= coefficients['normalization']
         return result
@@ -261,7 +261,7 @@ class HardSU3Model(BaseSU3Model):
         pions = goldstones.pions
         kaons = goldstones.kaons
         strangeons = goldstones.strangeons
-        meta_scalar = np.sqrt((pions.m_I**2. + 2. * strangeons.m_I**2.) / 3.)
+        meta_scalar = np.sqrt((pions.m_i**2. + 2. * strangeons.m_i**2.) / 3.)
         # Taste-averaged terms
         result = coefficients['taste-averaged'] * (
             2. * chipt.taste_average_i1(pions, self.lam)
@@ -269,18 +269,18 @@ class HardSU3Model(BaseSU3Model):
         )
         # Scalar pion terms
         result += coefficients['scalar'] * (
-            3. * chipt.chiral_log_i1(pions.m_I, self.lam)
+            3. * chipt.chiral_log_i1(pions.m_i, self.lam)
             - chipt.chiral_log_i1(meta_scalar, self.lam)
         )
         # Vector pion and eta terms
         result += coefficients['vector'] * self._residue_combo(
-            mass=[pions.m_V, pions.meta_V, strangeons.metaprime_V],
-            mu=strangeons.m_V)
+            mass=[pions.m_v, pions.meta_v, strangeons.metaprime_v],
+            mu=strangeons.m_v)
 
         # Axial pion and eta terms
         result += coefficients['axial'] * self._residue_combo(
-            mass=[pions.m_A, pions.meta_A, strangeons.metaprime_A],
-            mu=strangeons.m_A)
+            mass=[pions.m_a, pions.meta_a, strangeons.metaprime_a],
+            mu=strangeons.m_a)
         # Normalization
         result *= coefficients['normalization']
         return result

@@ -83,11 +83,11 @@ class HardSU2Model(BaseSU2Model):
         # Taste-averaged terms
         result = -1. * chipt.taste_average_i1(pions, self.lam)
         # Scalar pion terms
-        result += 0.25 * chipt.chiral_log_i1(pions.m_I, self.lam)
+        result += 0.25 * chipt.chiral_log_i1(pions.m_i, self.lam)
         # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
+        result += combo(pions.m_v) - combo(pions.meta_v)
         # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
+        result += combo(pions.m_a) - combo(pions.meta_a)
         # Normalization
         result /= (4. * np.pi * fpi)**2.
         if self.process in ('B to pi', 'D to pi'):
@@ -169,11 +169,11 @@ class SU2Model(BaseSU2Model):
         result += 2. * chipt.taste_average_i2(pions, energy, self.lam)
         # Scalar pion terms
         result += (1. + 3. * g2) / 4. * \
-            chipt.chiral_log_i1(pions.m_I, self.lam)
+            chipt.chiral_log_i1(pions.m_i, self.lam)
         # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
+        result += combo(pions.m_v) - combo(pions.meta_v)
         # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
+        result += combo(pions.m_a) - combo(pions.meta_a)
         # Normalization
         result /= (4. * np.pi * fpi)**2.
         return result
@@ -193,11 +193,11 @@ class SU2Model(BaseSU2Model):
         # Taste-averaged terms
         result = -3. * g2 * chipt.taste_average_i1(pions, self.lam)
         # Scalar pion terms
-        result += 3. * g2 / 4. * chipt.chiral_log_i1(pions.m_I, self.lam)
+        result += 3. * g2 / 4. * chipt.chiral_log_i1(pions.m_i, self.lam)
         # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
+        result += combo(pions.m_v) - combo(pions.meta_v)
         # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
+        result += combo(pions.m_a) - combo(pions.meta_a)
         # Normalization
         result /= (4. * np.pi * fpi)**2.
         return result
@@ -220,13 +220,13 @@ class SU2Model(BaseSU2Model):
         result = -(1. + 3. * g2) * chipt.taste_average_i1(pions, self.lam)
         # Scalar pion terms
         result -= 0.5 * g2 * \
-            chipt.chiral_log_j1sub(pions.m_I, energy, self.lam)
+            chipt.chiral_log_j1sub(pions.m_i, energy, self.lam)
         result += (1. + 3. * g2) / 4. * \
-            chipt.chiral_log_i1(pions.m_I, self.lam)
+            chipt.chiral_log_i1(pions.m_i, self.lam)
         # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
+        result += combo(pions.m_v) - combo(pions.meta_v)
         # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
+        result += combo(pions.m_a) - combo(pions.meta_a)
         # Normalization
         result *= 3 * g2 * energy / (4. * np.pi * fpi)**2.
         return result
@@ -245,11 +245,11 @@ class SU2Model(BaseSU2Model):
         # Taste-averaged terms
         result = -3. * g2 * chipt.taste_average_i1(pions, self.lam)
         # Scalar pion terms
-        result += 3. * g2 / 4. * chipt.chiral_log_i1(pions.m_I, self.lam)
+        result += 3. * g2 / 4. * chipt.chiral_log_i1(pions.m_i, self.lam)
         # Vector pion and eta terms
-        result += combo(pions.m_V) - combo(pions.meta_V)
+        result += combo(pions.m_v) - combo(pions.meta_v)
         # Axial pion and eta terms
-        result += combo(pions.m_A) - combo(pions.meta_A)
+        result += combo(pions.m_a) - combo(pions.meta_a)
         # Normalization
         result /= (4. * np.pi * fpi)**2.
         return result
@@ -262,11 +262,11 @@ class SU2Model(BaseSU2Model):
         # Taste-averaged terms
         result = 2. * chipt.taste_average_j1sub(pions, energy, self.lam)
         # Scalar pion terms
-        result -= 0.5 * chipt.chiral_log_j1sub(pions.m_I, energy, self.lam)
+        result -= 0.5 * chipt.chiral_log_j1sub(pions.m_i, energy, self.lam)
         # Vector pion and eta terms
-        result -= 2. * (combo(pions.m_V) - combo(pions.meta_V))
+        result -= 2. * (combo(pions.m_v) - combo(pions.meta_v))
         # Axial pion and eta terms
-        result -= 2. * (combo(pions.m_A) - combo(pions.meta_A))
+        result -= 2. * (combo(pions.m_a) - combo(pions.meta_a))
         # Normalization
         result *= -3. * g2 * energy / (4. * np.pi * fpi)**2.
         return result
