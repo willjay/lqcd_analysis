@@ -214,11 +214,11 @@ def taste_average(fcn, pions, *args, **kwargs):
         taste-averaged evaulation of fcn
     """
     return (
-        + 1. * fcn(pions.m_I, *args, **kwargs)
-        + 4. * fcn(pions.m_V, *args, **kwargs)
-        + 6. * fcn(pions.m_T, *args, **kwargs)
-        + 4. * fcn(pions.m_A, *args, **kwargs)
-        + 1. * fcn(pions.m_A, *args, **kwargs)
+        + 1. * fcn(pions.m_i, *args, **kwargs)
+        + 4. * fcn(pions.m_v, *args, **kwargs)
+        + 6. * fcn(pions.m_t, *args, **kwargs)
+        + 4. * fcn(pions.m_a, *args, **kwargs)
+        + 1. * fcn(pions.m_p, *args, **kwargs)
     ) / 16.
 
 
