@@ -117,7 +117,8 @@ def decomp_blocks(corr_blocked, ordered_tags, sizes):
     return corr_dict
 
 
-def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
+def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None,
+                       bstrap=False):
     """
     Correct the covariance using three steps:
     (a) adjust the size of the diagonal errors (via the variances)
@@ -125,8 +126,7 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
     (b) adjust the correlations of the *full* dataset with shrinkage, and
     (c) combine the adjusted errors and correlation matrices.
     Args:
-        data: dict with the full dataset. Assumes that data has keys
-              13, 14, 15, 16, 'heavy-light', and 'light-light'
+        data: dict with the full dataset.
         binsize: int, the binsize to use. Default is 1 (no binning).
         shrink_choice: str, which shrinkage scheme to use. Default is None
             (no shrinkage). Valid options: 'RBLW', 'OA', 'LW', and 'nonlinear'.
@@ -134,10 +134,15 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
         final_cov: the final correct covariance "matrix" as a dictionary
     """
     if ordered_tags is None:
-        ordered_tags = sorted(data.keys(), key=str)
+        ordered_tags = sorted(data.keys(), key=str)     
     # shapes are (n,p), where n is nsamples and p is ndata
-    sizes = [data[tag].shape[1] for tag in ordered_tags]
-
+    try:
+        sizes = [data[tag].shape[1] for tag in ordered_tags]
+    except IndexError:
+        # edge case: single datum per sample
+        sizes = [1 for tag in ordered_tags]
+    total_size = np.sum(sizes)
+        
     shrink_fcns = {
         'RBLW': shrink.rblw_shrink_correlation_identity,
         'OA': shrink.oa_shrink_correlation_identity,
@@ -147,7 +152,7 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
 
     # Estimate errors from binned variances
     binned_data = {tag: avg_bin(data[tag], binsize) for tag in ordered_tags}
-    binned_cov = gv.evalcov(gv.dataset.avg_data(binned_data))
+    binned_cov = gv.evalcov(gv.dataset.avg_data(binned_data, bstrap=bstrap))
     binned_err = {}
     for key_pair in binned_cov:
         key1, key2 = key_pair
@@ -162,12 +167,14 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
     else:
         # Carry out the desired shrinkage
         samples = np.hstack([data[tag] for tag in ordered_tags])
+        if total_size == len(ordered_tags):
+            # edge case: single datum per sample
+            samples = samples.reshape(-1, len(ordered_tags))
         kwargs = {}
         if shrink_choice == 'nonlinear':
             kwargs['n_eff'] = samples.shape[0] // binsize
         (_, corr_shrink_concat) = shrink_fcns[shrink_choice](samples, **kwargs)
         corr_shrink = decomp_blocks(corr_shrink_concat, ordered_tags, sizes)
-
     # Correlate errors according to the shrunken correlation matrix
     final_cov = {}
     for key_l, key_r in corr_shrink:
@@ -182,7 +189,7 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None):
 
 
 def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None,
-                  noerror=False):
+                  noerror=False, aggressive=False):
     """
     Builds a correlated dataset, folding periodic correlators,
     binning data, and applying the specified shrinkage to the
@@ -194,8 +201,14 @@ def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None,
         cov = correct_covariance(data, **kwargs)
         return gv.gvar(mean, cov)
 
+    if aggressive:
+        max_size = max([val.size for val in data_ind.values()])
+        
     tmp = {}
     for key, value in data_ind.items():
+        if aggressive and (value.size != max_size):
+            # Skip entries which are too small
+            continue
         try:
             if (not isinstance(key, int)) and do_fold:
                 # Fold two-point functions
