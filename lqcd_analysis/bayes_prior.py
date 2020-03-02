@@ -11,6 +11,18 @@ import gvar as gv
 def main():
     """TODO: Add main function."""
 
+    
+def inflate(params, frac):
+    """
+    Inflates the width on the priors to frac*mean, unless the existing width is
+    already wider.
+    """        
+    for key, value in params.items():
+        mean = gv.mean(value)
+        sdev = np.maximum(frac*np.abs(mean), gv.sdev(value))
+        params[key] = gv.gvar(mean, sdev)
+    return params
+
 
 def _is_log(key):
     """Check if the key has the form 'log(*)'."""
