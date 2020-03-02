@@ -40,8 +40,8 @@ class BaseSU2Model(chipt.ChiralModel):
         energy = chipt.get_value(dict_list, 'E')
         delta = chipt.get_value(dict_list, 'delta_pole')
         # Get the chiral logarithms
-        pions = chipt.StaggeredPions(x, params, self.continuum)
-        logs = self.delta_logs(fpi, gpi, pions)
+        pions = chipt.StaggeredPions(x, params, continuum=self.continuum)
+        logs = self.delta_logs(fpi, gpi, pions, energy)
         sigma = self.self_energy(fpi, gpi, pions, energy)
         # Get the analytic terms
         chi = chipt.ChiralExpansionParameters(x, params)
@@ -66,7 +66,7 @@ class HardSU2Model(BaseSU2Model):
         """
         return 0.0
 
-    def delta_logs(self, fpi, gpi, pions):
+    def delta_logs(self, fpi, gpi, pions, *args):
         """
         Computes the full chiral logarithm for SU(2) hard K/pi EFT.
         Note:
@@ -114,19 +114,19 @@ class SU2Model(BaseSU2Model):
         Computes the full combination of chiral logarithms.
         """
         name = self.form_factor_name
-        if name in ('f_0', 'f_T'):
+        if name in ('f_0'):
             raise NotImplementedError(f"Logs not yet implementd for {name}")
 
         if self.process in ('B to pi', 'D to pi'):
             if name in ('f_parallel', r'f_\parallel'):
                 return self._log_b2pi_parallel(fpi, gpi, pions, energy)
-            if name in ('f_perp', r'f_\perp'):
+            if name in ('f_perp', r'f_\perp', 'f_T'):
                 return self._log_b2pi_perp(fpi, gpi, pions, energy)
 
         if self.process in ('B to K', 'D to K'):
             if name in ('f_parallel', r'f_\parallel'):
                 return self._log_b2k_parallel(fpi, gpi, pions)
-            if name in ('f_perp', r'f_\perp'):
+            if name in ('f_perp', r'f_\perp', 'f_T'):
                 return self._log_b2k_perp(fpi, gpi, pions)
 
         if self.process in ('Bs to K', 'Ds to K'):
