@@ -257,8 +257,6 @@ class FormFactorAnalysis(object):
             **fitter_kwargs)
         self.fit_form_factor(nstates=nstates, **fitter_kwargs)
         self.collect_statistics()
-        if self.fits['full'] is not None:
-            self.r = convert_vnn_to_ratio(self.m_src, self.matrix_element)
 
     def mass(self, tag):
         """Gets the mass/energy of the ground state from full fit."""
@@ -323,9 +321,12 @@ class FormFactorAnalysis(object):
         """Run the joint fit of 2- and 3-point functions for form factor."""
         models = [get_model(self.ds, tag, nstates) for tag in self.ds]
         models = [model for model in models if model is not None]
+        prior = fitter_kwargs.get('prior')
+        if prior is None:
+            fitter_kwargs['prior'] = self.prior
         if len(models) == len(set(self.ds.keys())):        
             self.fitter = cf.CorrFitter(models=models)
-            fit = self.fitter.lsqfit(data=self.ds, prior=self.prior, **fitter_kwargs)
+            fit = self.fitter.lsqfit(data=self.ds, **fitter_kwargs)
             if np.isnan(fit.chi2) or np.isinf(fit.chi2):
                 LOGGER.warning('Full joint fit failed.')
                 fit = None
@@ -334,6 +335,8 @@ class FormFactorAnalysis(object):
             fit = None
             LOGGER.warning('Insufficient models found. Skipping joint fit.')
         self.fits['full'] = fit
+        if fit is not None:
+            self.r = convert_vnn_to_ratio(self.m_src, self.matrix_element)
 
     def collect_statistics(self):
         """Collect statistics about the fits."""
