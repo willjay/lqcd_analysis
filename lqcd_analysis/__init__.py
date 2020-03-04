@@ -9,3 +9,4 @@ from . import resample
 from . import chipt
 from . import su2
 from . import su3
+from . import models
