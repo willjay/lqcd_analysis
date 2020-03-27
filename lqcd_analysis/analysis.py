@@ -7,6 +7,7 @@ import collections
 import numpy as np
 import gvar as gv
 import corrfitter as cf
+from . import models
 from . import correlator
 from . import dataset
 from . import bayes_prior
@@ -18,7 +19,8 @@ LOGGER = logging.getLogger(__name__)
 Nstates = collections.namedtuple(
     'NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0)
 )
-
+def _abs(val):
+    return val * np.sign(val)
 
 def phat2(ptag):
     """
@@ -78,7 +80,8 @@ def get_two_point_model(two_point, osc=True):
     return model
 
 
-def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None):
+def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None,
+                          pedestal=None):
     if tags is None:
         tags = dataset.Tags(src='light-light', snk='heavy-light')
     src = tags.src
@@ -106,7 +109,7 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None):
             vno = None
             voo = None
 
-        model = cf.Corr3(
+        model = models.Corr3(
             datatag=t_snk, T=t_snk, tdata=tdata, tfit=tfit,
             # Amplitudes in src 2-pt function
             a=a_pnames,
@@ -127,7 +130,9 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None):
             # connect src oscillating --> snk decay
             Von=von,
             # connect src oscillating --> snk oscillating
-            Voo=voo
+            Voo=voo,
+            # optional "pedestal+fluctuation" treatment of target matrix element
+            pedestal=pedestal
         )
     else:
         # Empty tfit -- no model
@@ -136,14 +141,15 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None):
     return model
 
 
-def get_model(ds, tag, nstates):
+def get_model(ds, tag, nstates, pedestal=None):
     """Gets a corrfitter model"""
     if isinstance(ds[tag], correlator.TwoPoint):
         osc = bool(nstates.no)
         return get_two_point_model(ds[tag], osc)
     if isinstance(tag, int):
         t_snk = tag
-        return get_three_point_model(t_snk, ds.tfit[t_snk], ds.tdata, nstates)
+        return get_three_point_model(t_snk, ds.tfit[t_snk], ds.tdata, nstates, 
+                                     pedestal=pedestal)
     raise TypeError("get_model() needs TwoPoint or ThreePoint objects.")
 
 
@@ -228,6 +234,7 @@ class FormFactorAnalysis(object):
         self.fitter = None
         self.stats = {}
         self.r = None
+        self.pedestal = None
 
     def run_sequential_fits(
             self, nstates, tmin_override=None,
@@ -240,9 +247,13 @@ class FormFactorAnalysis(object):
         the (central values of) the priors for the joint fit. The runs the
         joint fit.
         """
+        self.pedestal = fitter_kwargs.pop('pedestal', None)
         if prior is None:            
             self.prior = bayes_prior.FormFactorPrior(
-                nstates, self.ds, positive_ff=self.positive_ff)
+                nstates,
+                self.ds,
+                pedestal=self.pedestal,
+                positive_ff=self.positive_ff)
         else:
             self.prior = prior
         if tmin_override is not None:
@@ -254,7 +265,7 @@ class FormFactorAnalysis(object):
             nstates=nstates,
             width=width,
             fractional_width=fractional_width,
-            **fitter_kwargs)
+            **fitter_kwargs)            
         self.fit_form_factor(nstates=nstates, **fitter_kwargs)
         self.collect_statistics()
 
@@ -278,7 +289,7 @@ class FormFactorAnalysis(object):
     @property
     def matrix_element(self):
         """Fetches the matrix element Vnn[0, 0] needed for the form factor."""
-        if self.fits['full'] is not None:
+        if self.fits['full'] is not None:            
             return self.fits['full'].p['Vnn'][0, 0]
 
     @property
@@ -299,7 +310,7 @@ class FormFactorAnalysis(object):
         r_fit = np.abs(gv.mean(self.r))
         r_guess = np.abs(gv.mean(self.ds.r_guess))
         return r_fit >= r_guess
-
+    
     def fit_two_point(self, nstates, width=0.1, fractional_width=False, **fitter_kwargs):
         """Run the fits of two-point functions."""
         for tag in self.ds.c2:
@@ -319,7 +330,10 @@ class FormFactorAnalysis(object):
 
     def fit_form_factor(self, nstates, **fitter_kwargs):
         """Run the joint fit of 2- and 3-point functions for form factor."""
-        models = [get_model(self.ds, tag, nstates) for tag in self.ds]
+        pedestal = fitter_kwargs.pop('pedestal', None)
+        if pedestal is not None:
+            self.pedestal = pedestal
+        models = [get_model(self.ds, tag, nstates, self.pedestal) for tag in self.ds]
         models = [model for model in models if model is not None]
         prior = fitter_kwargs.get('prior')
         if prior is None:
@@ -336,8 +350,15 @@ class FormFactorAnalysis(object):
             LOGGER.warning('Insufficient models found. Skipping joint fit.')
         self.fits['full'] = fit
         if fit is not None:
-            self.r = convert_vnn_to_ratio(self.m_src, self.matrix_element)
-
+            if self.pedestal is not None:
+                sign = np.sign(self.pedestal)
+                vnn = self.pedestal + sign * _abs(fit.p['fluctuation'])
+                fit.p['Vnn'][0, 0] = vnn
+                fit.palt['Vnn'][0, 0] = vnn
+            else:
+                vnn = fit.p['Vnn'][0, 0]
+            self.r = convert_vnn_to_ratio(self.m_src, vnn)
+            
     def collect_statistics(self):
         """Collect statistics about the fits."""
         for tag, fit in self.fits.items():
@@ -501,7 +522,7 @@ class FormFactorAnalysis(object):
         """
         # TODO: Handle possibility of nontrivial normalization factor
         # norm = self.ds.normalization()
-        norm = 1.0
+        norm = 1.0 * self.ds.sign
         # Plot ratio "R" of two- and three-point functions
         ax = self.ds.plot_ratio(ax=ax, tmax=tmax)
         # Plot the prior value for the plateau in "R"
