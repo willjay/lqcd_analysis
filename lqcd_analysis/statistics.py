@@ -40,7 +40,7 @@ def correlated_chi2(yfit, ydata):
     # Reserve space for arrays
     # Implementation note: flatten allows for the special case
     # of matrix-valued priors, e.g., for the transition matrix Vnn
-    sizes = [len(ydata[key].flatten()) for key in klist]
+    sizes = [len(np.asarray(ydata[key]).flatten()) for key in klist]
     total_size = sum(sizes)
     diff = np.empty(total_size)
     cov_arr = np.zeros((total_size, total_size))
@@ -49,7 +49,7 @@ def correlated_chi2(yfit, ydata):
     starts = ends - sizes
     # Populate arrays
     for start_i, end_i, key_i in zip(starts, ends, klist):
-        diff[start_i:end_i] = gv.mean(ydata[key_i] - yfit[key_i]).flatten()
+        diff[start_i:end_i] = np.asarray(gv.mean(ydata[key_i] - yfit[key_i])).flatten()
         for start_j, end_j, key_j in zip(starts, ends, klist):
             try:
                 cov_arr[start_i:end_i, start_j:end_j] =\
