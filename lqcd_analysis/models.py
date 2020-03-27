@@ -3,16 +3,34 @@ This module contains additional models for three-point correlations functions.
 The models are subclasses of those in Lepage's corrfitter package.
 """
 import numpy as np
-import corrfitter
+from corrfitter import Corr3 as _Corr3
 
-class Corr3(corrfitter.Corr3):
+import logging
+LOGGER = logging.getLogger(__name__)
+
+def _abs(val):
+    return val * np.sign(val)
+
+class Corr3(_Corr3):
     """
     A subclass extending the functionality of corrfitter.Corr3.
     """
     def __init__(self, *args, **kwargs):
-        self.pedestal = kwargs.pop('pedestal')
+        self.pedestal = kwargs.get('pedestal')
+        if hasattr(self.pedestal, 'sdev'):
+            raise ValueError(f"pedestal cannot be gvar, found {self.pedestal}")
+        _ = kwargs.pop('pedestal', None)
         super(Corr3, self).__init__(*args, **kwargs)
 
+    def buildprior(self, prior, mopt=None, nterm=None):
+        new_prior = super().buildprior(prior, mopt, nterm)
+        if self.pedestal is not None:
+            try:
+                new_prior['log(fluctuation)'] = prior['log(fluctuation)']
+            except:
+                new_prior['fluctuation'] = prior['fluctuation']
+        return new_prior
+        
     def _buildprop(self, times, params, choice):
         """
         Builds an array of "propagators".
@@ -82,17 +100,22 @@ class Corr3(corrfitter.Corr3):
                     vertices[idx_l, idx_k] = vertices[idx_k, idx_l]
         return vertices
 
-    def _apply_pedestal(self, vertices):
+    def _apply_pedestal(self, vertices, params):
         """
-        Reinterprets V[0,0] as log prior for a positive fluctuation upon a
-        pedestal. In other words
+        Treats V[0,0] using fluctuation upon a pedestal, i.e., 
         A[n][0] * Vnn[0,0] * B[n][0] -->
-            A[n][0] * (pedestal + <postive fluctuation>) * B[n][0],
-        where <positive fluctuation> = exp(Vnn[0,0])
+            A[n][0] * (pedestal +/- <fluctuation>) * B[n][0].
+        The sign of the fluctuation is taken from the sign of V[0,0]. This 
+        convention means that a log prior for 'fluctuation' can only only push
+        the value of the matrix element *away* from the origin.
         """
-        if self.pedestal is not None:
-            vertices[0, 0] = self.pedestal + np.exp(vertices[0, 0])
-
+        if self.pedestal is None:
+            return vertices
+        v_copy = np.array(vertices)      
+        sign = np.sign(self.pedestal)
+        v_copy[0, 0] = self.pedestal + sign * _abs(params['fluctuation'])
+        return v_copy
+    
     def _bind_with_vertices(self, aprop, bprop, params):
         """
         Binds propagators together with vertices according to
@@ -115,13 +138,13 @@ class Corr3(corrfitter.Corr3):
                 if self.transpose_V:
                     vertices = vertices.T
                 if (idx_i == 0) and (idx_j == 0):
-                    self._apply_pedestal(vertices)
+                    vertices = self._apply_pedestal(vertices, params)
                 # Accumulate the product of propagators and vertices
                 if min(len(apropi), len(vertices), len(bpropj)) != 0:
                     ans += np.sum(apropi * np.dot(vertices, bpropj), axis=0)
         return ans
 
-    def fitfcn(self, params, t=None):
+    def fitfcn(self, p, t=None):
         """
         Overrides default fitfcn of corrfitter.Corr3.
         """
@@ -134,9 +157,9 @@ class Corr3(corrfitter.Corr3):
         tb = self.T - ta
         # initial propagators
         # aprop[i][j][t] where i = n or o and j = excitation level
-        aprop = self._buildprop(ta, params, 'a')
+        aprop = self._buildprop(ta, p, 'a')
         # final propagators
         # bprop[i][j][t] where i = n or o and j = excitation level
-        bprop = self._buildprop(tb, params, 'b')
+        bprop = self._buildprop(tb, p, 'b')
         # combine propagators with vertices
-        return self._bind_with_vertices(aprop, bprop, params)
+        return self._bind_with_vertices(aprop, bprop, p)
