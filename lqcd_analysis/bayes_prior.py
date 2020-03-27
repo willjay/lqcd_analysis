@@ -6,7 +6,7 @@ BasePrior
 """
 import numpy as np
 import gvar as gv
-
+import re
 
 def main():
     """TODO: Add main function."""
@@ -26,7 +26,14 @@ def inflate(params, frac):
 
 def _is_log(key):
     """Check if the key has the form 'log(*)'."""
-    if key.startswith('log(') and key.endswith(')'):
+# TODO: delete
+#     if key.startswith('log(') and key.endswith(')'):
+#         return True
+    pattern = re.compile(r"^log\((.*)\)$")
+    match = re.match(pattern, key)
+    if match:
+        if re.match(pattern, match[1]):
+            raise ValueError(f"Cannot have 'log(log(*))' keys, found {key}")
         return True
     return False
 
@@ -35,7 +42,10 @@ def _check_duplicate_keys(keys):
     """Avoid key duplication during initialization."""
     log_keys = [key for key in keys if _is_log(key)]
     for log_key in log_keys:
-        exp_key = log_key[4:-1]
+        # log(<astring>) --> <astring>
+        exp_key = re.match(r"^log\((.*)\)$", log_key)[1]
+# TODO: delete
+#         exp_key = log_key[4:-1]
         if exp_key in keys:
             msg = "Cannot have keys '{0}' and '{1}' together.".\
                 format(log_key, exp_key)
@@ -85,6 +95,7 @@ class BasePrior(object):
         """Get value corresponding to key, allowing for 'log' terms."""
         if self.extend and _is_log(key):
             return np.log(self.dict.__getitem__(key[4:-1]))
+        
         return self.dict.__getitem__(key)
 
     def __setitem__(self, key, value):
@@ -126,7 +137,8 @@ class BasePrior(object):
 
     def _keys(self):
         for key in self.dict.keys():
-            if ('dE' in key) or (':a' in key):
+            # nota bene: this enforces that these keys use log priors!
+            if ('dE' in key) or (':a' in key) or ('fluctuation' in key):
                 yield 'log({0})'.format(key)
             else:
                 yield key
@@ -239,6 +251,42 @@ class MesonPrior(BasePrior):
         return prior
 
 
+# def _estimate_r(ds, sign=1):
+#     """
+#     Estimate the 'plateau' value from ratios of 2- and 3-point functions.
+#     Args:
+#         ds: FormFactorDatset
+#     Returns:
+#         float, an estimate of the plateau
+#     """
+#     maxes = []
+#     for T_sink in ds.rbar:
+#         val = ds.rbar[T_sink]
+#         local_max = max(sign * gv.mean(val[:T_sink - 2]))
+#         maxes.append(local_max)
+#     r_guess = sign * max(maxes) * 1.05
+#     return r_guess
+
+
+# def _r_to_v(r_plateau, mass):
+#     """
+#     Compute the matrix element 'Vnn' from the plateau value 'R'.
+#     This matrix element is the form factor, up to some conventional
+#     normalization factors. The formula is $V_{nn} = R / \\sqrt{2 M_L}$,
+#     where $M_L$ is the mass of the 'light' state. For heavy-to-light
+#     transitions like D to K/pi, $M_L$ would be kaon or pion mass.
+#     For "degenerate" heavy-heavy transitions, $M_L$ is simply the mass.
+#     Args:
+#         r: the value for the plateau
+#         mass: the mass of the 'light' state
+#     Returns:
+#         gvar, the estimate of the matrix element 'Vnn'
+#     """
+#     vnn = gv.mean(r_plateau / np.sqrt(2.0 * mass))
+#     width = np.abs(0.1 * vnn)
+#     return gv.gvar(vnn, width)    
+    
+
 class FormFactorPrior(BasePrior):
     """
     Prior for joint fits to extract form factors.
@@ -259,16 +307,17 @@ class FormFactorPrior(BasePrior):
         FormFactorPrior object
     """
 
-    def __init__(self, nstates, ds=None, positive_ff=True, **kwargs):
+    def __init__(self, nstates, ds=None, positive_ff=True, pedestal=None, **kwargs):
         if ds is None:
             ds = {}
         else:
             FormFactorPrior._verify_tags(ds._tags)
         self.positive_ff = positive_ff
+        self.pedestal = pedestal
         super(FormFactorPrior, self).__init__(
-                FormFactorPrior._build(nstates, ds, positive_ff), **kwargs
-            )
-
+                mapping=self._build(nstates, ds),
+                **kwargs)
+                    
     @staticmethod
     def _verify_tags(tags):
         """Verify that the tags (from nstates) are supported."""
@@ -284,11 +333,10 @@ class FormFactorPrior(BasePrior):
                 return
         raise ValueError("Unrecognized tags in FormFactorPrior")
 
-    @staticmethod
-    def _build(nstates, ds, positive_ff):
+    def _build(self, nstates, ds):
         """Build the prior dict."""
         prior = FormFactorPrior._make_meson_prior(nstates, ds)
-        tmp = FormFactorPrior._make_vmatrix_prior(nstates, ds, positive_ff)
+        tmp = self._make_vmatrix_prior(nstates, ds)
         for key in tmp:
             prior[key] = tmp[key]
         return prior
@@ -309,11 +357,11 @@ class FormFactorPrior(BasePrior):
                 prior[key] = value
         return prior
 
-    @staticmethod
-    def _make_vmatrix_prior(nstates, ds, positive_ff):
+    def _make_vmatrix_prior(self, nstates, ds):
         """Build prior for the 'mixing matrices' Vnn, Vno, Von, and Voo."""
+        def _abs(val):
+            return val * np.sign(val)
         mass = None
-
         n = nstates.n
         no = nstates.no
         m = nstates.m
@@ -326,53 +374,27 @@ class FormFactorPrior(BasePrior):
         tmp_prior['Vno'] = gv.gvar(n * [mo * ['0.1(2.0)']])
         tmp_prior['Von'] = gv.gvar(no * [m * ['0.1(2.0)']])
         tmp_prior['Voo'] = gv.gvar(no * [mo * ['0.1(2.0)']])
+        v = gv.mean(ds.v_guess)
+        verr = 0.5 * _abs(v)
+        tmp_prior['Vnn'][0, 0] = gv.gvar(v, verr)
 
-        if mass is not None:
-            if positive_ff:
-                sign = 1
-            else:
-                sign = -1
-            r = FormFactorPrior._estimate_r(ds, sign)
-            v = FormFactorPrior._r_to_v(r, mass)
-            tmp_prior['Vnn'][0, 0] = v
-
+        if self.pedestal is not None:
+            if np.sign(self.pedestal) != np.sign(v):
+                raise ValueError(
+                    "Sign of the specified pedestal disagrees with the sign"
+                    " inferred from the data. Unable to proceed.")
+            sign = np.sign(v)
+            v = self.pedestal
+            verr = 0.5 * _abs(v)
+            # Start with a 10% fluctuation on top of the pedestal
+            fluctuation = 0.1 * _abs(v)
+            # Start the matrix element at the pedestal with large uncertainty
+            tmp_prior['Vnn'][0, 0] = gv.gvar(v + sign * fluctuation, verr)            
+            # In the model function, the pedestal is a pure number without error
+            # so the fluctuation should carry all the uncertainty.
+            tmp_prior['log(fluctuation)'] = np.log(gv.gvar(fluctuation, verr))
+            
         return tmp_prior
-
-    @staticmethod
-    def _estimate_r(ds, sign=1):
-        """
-        Estimate the 'plateau' value from ratios of 2- and 3-point functions.
-        Args:
-            ds: FormFactorDatset
-        Returns:
-            float, an estimate of the plateau
-        """
-        maxes = []
-        for T_sink in ds.rbar:
-            val = ds.rbar[T_sink]
-            local_max = max(sign * gv.mean(val[:T_sink - 2]))
-            maxes.append(local_max)
-        r_guess = sign * max(maxes) * 1.05
-        return r_guess
-
-    @staticmethod
-    def _r_to_v(r_plateau, mass):
-        """
-        Compute the matrix element 'Vnn' from the plateau value 'R'.
-        This matrix element is the form factor, up to some conventional
-        normalization factors. The formula is $V_{nn} = R / \\sqrt{2 M_L}$,
-        where $M_L$ is the mass of the 'light' state. For heavy-to-light
-        transitions like D to K/pi, $M_L$ would be kaon or pion mass.
-        For "degenerate" heavy-heavy transitions, $M_L$ is simply the mass.
-        Args:
-            r: the value for the plateau
-            mass: the mass of the 'light' state
-        Returns:
-            gvar, the estimate of the matrix element 'Vnn'
-        """
-        vnn = gv.mean(r_plateau / np.sqrt(2.0 * mass))
-        width = np.abs(0.1 * vnn)
-        return gv.gvar(vnn, width)
 
 
 if __name__ == '__main__':
