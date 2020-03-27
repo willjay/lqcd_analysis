@@ -137,6 +137,8 @@ class TwoPoint(object):
     @property
     def mass_avg(self):
         """Estimate the mass using fastfit on the averaged correlator."""
+        if self._mass is not None:
+            return self._mass
         return fastfit.FastFit(
             data=self.avg()[:self.times.tmax],
             tp=self.times.tp,
@@ -158,7 +160,9 @@ class TwoPoint(object):
         [https://arxiv.org/abs/0811.3640].
         Other similar quantities could be reasonably defined.
         """
-        if mass < 0:
+        if self._mass is not None:
+            mass = self._mass
+        elif mass < 0:
             mass = self.fastfit.E
         c2 = self.ydata
         tmax = len(c2)
