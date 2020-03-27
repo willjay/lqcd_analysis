@@ -22,6 +22,26 @@ Tags = collections.namedtuple('Tags', ['src', 'snk'])
 def main():
     """TODO: Add main function"""
 
+    
+def _valid(arr):
+    """Restricts to elements which are neither infinite nor nans."""
+    mean = gv.mean(arr)
+    sdev = gv.sdev(arr)
+    mask = np.isfinite(mean)\
+        & np.isfinite(sdev)\
+        & ~np.isnan(mean)\
+        & ~np.isnan(sdev)
+    return arr[mask]
+
+
+def get_sign(data):
+    signs = np.sign(data)
+    if not hasattr(signs, '__len__'):
+        return signs
+    if not np.all(signs == signs[0]):
+        raise ValueError(f"Sign mismatch.")
+    return signs[0]
+
 
 def fold(arr):
     """Fold periodic correlator data."""
@@ -118,7 +138,7 @@ def decomp_blocks(corr_blocked, ordered_tags, sizes):
 
 
 def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None,
-                       bstrap=False):
+                       bstrap=False, inflate=1.0):
     """
     Correct the covariance using three steps:
     (a) adjust the size of the diagonal errors (via the variances)
@@ -157,7 +177,8 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None,
     for key_pair in binned_cov:
         key1, key2 = key_pair
         if key1 == key2:
-            binned_err[key1] = np.diag(np.sqrt(np.diag(binned_cov[key_pair])))
+            binned_err[key1] =\
+                inflate * np.diag(np.sqrt(np.diag(binned_cov[key_pair])))
 
     # Estimate correlations from shrunken correlation matrices
     if shrink_choice is None:
@@ -280,8 +301,9 @@ class FormFactorDataset(object):
         noise_threshy: float, noise-to-signal ratio for cutting on the data.
             Default is 0.03, i.e., 3 percent.
     """
-    def __init__(self, ds, tags=None, noise_threshy=0.03, sign=1.0, skip_fastfit=False):
-        self.sign = sign / np.abs(sign)
+    def __init__(self, ds, tags=None, noise_threshy=0.03, sign=None, skip_fastfit=False):
+        self._mass_override = False
+        self._sign = sign
         # Start with the three-point function(s).
         # Infer nt from the three-point function in case the two-point
         # functions have been folded about the midpoint.
@@ -299,8 +321,8 @@ class FormFactorDataset(object):
             self.c2[tag] = correlator.TwoPoint(
                 tag, ds[tag], noise_threshy, nt=nt, skip_fastfit=skip_fastfit
             )
-        self._verify_tdata()
-
+        self._verify_tdata()        
+        
     def _verify_tdata(self):
         """Verify that all correlators have matching nt."""
         nts = [self.c2_src.times.nt,
@@ -314,7 +336,29 @@ class FormFactorDataset(object):
         """Update the masses of the source and sink manually."""
         self.c2[self._tags.src].set_mass(m_src)
         self.c2[self._tags.snk].set_mass(m_snk)
-                
+        self._mass_override = True
+
+    @property
+    def sign(self):
+        if self._sign is not None:
+            return self._sign
+        # Collect signs across the different three-point functions
+        signs = []
+        for t_snk, rbar in self.rbar.items():
+            try:
+                signs.append(get_sign(_valid(rbar[1:t_snk - 1])))
+            except ValueError:
+                raise ValueError(
+                    f"Sign mismatch for t_snk={t_snk}. "
+                     "Please specify by hand at initalization.")
+        # Reduce to a single sign
+        try: 
+            return get_sign(signs)
+        except ValueError:
+            raise ValueError(
+                f"Sign mismatch across t_snks, found {signs}. "
+                 "Please specify by hand at initalization.")
+        
     @property
     def tdata(self):
         """ Get tdata from 0 to the smallest tmax. """
@@ -415,9 +459,10 @@ class FormFactorDataset(object):
         m_snk = self.m_snk
         if avg:
             # Switch to averaged versions of all the quantites
+            if not self._mass_override:
+                m_src = c2_src.mass_avg
+                m_snk = c2_snk.mass_avg
             c3 = self.c3bar
-            m_src = c2_src.mass_avg
-            m_snk = c2_snk.mass_avg
             c2_src = c2_src.avg()
             c2_snk = c2_snk.avg()
         # Compute the ratio
@@ -455,20 +500,23 @@ class FormFactorDataset(object):
 
     def estimate_plateau(self):
         """Estimate the value of the plateau."""
-        # TODO: handle normalization
-        # if normalization() < 0:
-        #     factor = -1.0
         plateau = float('-inf')
+        sign = self.sign
         for t_snk, rbar in self.rbar.items():
-            local_max = max(self.sign * gv.mean(rbar[1:t_snk - 1]))
+            local_max = max(sign * gv.mean(rbar[1:t_snk - 1]))
             plateau = max(plateau, local_max)
-        return plateau
+        return sign * plateau
 
     @property
     def r_guess(self):
         """Compute a guess for the plateau value of R."""
         return self.estimate_plateau()
 
+    @property
+    def v_guess(self):
+        """Compute a guess for the target matrix element Vnn[0,0]."""
+        return self.r_guess / np.sqrt(2.0 * self.m_src)
+    
     def plot_corr(self, ax=None):
         """Plot the correlation functions in the dataset."""
         if ax is None:
@@ -502,7 +550,7 @@ class FormFactorDataset(object):
         return ax
 
     def plot_ratio(self, ax=None, tmin=0, tmax=None, bands=False,
-                   sign=1.0, plot_sawtooth=True, **plot_kwargs):
+                   plot_sawtooth=True, **plot_kwargs):
         """Plot a useful ratio of two- and three-point functions."""
         if ax is None:
             _, ax = plt.subplots(1, figsize=(10, 5))
