@@ -531,10 +531,10 @@ class FormFactorData:
         m_heavy to zero, since the chiral fit should NOT include any analytic
         dependence on the heavy "strange quark mass."
         """
-        (m_light, m_heavy) = np.sort(self.quark_masses)
-        if m_heavy == m_light:
-            m_heavy = 0.
-        return m_light, m_heavy
+        (m_light, m_spectator) = np.sort(self.quark_masses)
+        if m_spectator == m_light:
+            m_spectator = 0.
+        return m_light, m_spectator
 
     def unpackage_ydata(self, m_daughter):
         """
