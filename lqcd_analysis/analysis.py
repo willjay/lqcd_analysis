@@ -81,7 +81,7 @@ def get_two_point_model(two_point, osc=True):
 
 
 def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None,
-                          pedestal=None):
+                          pedestal=None, constrain=False):
     if tags is None:
         tags = dataset.Tags(src='light-light', snk='heavy-light')
     src = tags.src
@@ -108,8 +108,11 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None,
             dEb_pnames = dEb_pnames[0]
             vno = None
             voo = None
-
-        model = models.Corr3(
+        if constrain:
+            _Model = models.ConstrainedCorr3
+        else:
+            _Model = models.Corr3
+        model = _Model(
             datatag=t_snk, T=t_snk, tdata=tdata, tfit=tfit,
             # Amplitudes in src 2-pt function
             a=a_pnames,
@@ -141,15 +144,15 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None,
     return model
 
 
-def get_model(ds, tag, nstates, pedestal=None):
+def get_model(ds, tag, nstates, pedestal=None, constrain=False):
     """Gets a corrfitter model"""
     if isinstance(ds[tag], correlator.TwoPoint):
-        osc = bool(nstates.no)
+        osc = bool(nstates.no) if tag == ds._tags.src else bool(nstates.mo)
         return get_two_point_model(ds[tag], osc)
     if isinstance(tag, int):
         t_snk = tag
         return get_three_point_model(t_snk, ds.tfit[t_snk], ds.tdata, nstates, 
-                                     pedestal=pedestal)
+                                     pedestal=pedestal, constrain=constrain)
     raise TypeError("get_model() needs TwoPoint or ThreePoint objects.")
 
 
@@ -194,6 +197,8 @@ class TwoPointAnalysis(object):
     def __init__(self, c2):
         self.tag = c2.tag
         self.c2 = c2
+        self.prior = None
+        self.fitter = None
 
     def run_fit(self, nstates=Nstates(1, 0), prior=None, **fitter_kwargs):
         """
@@ -211,13 +216,15 @@ class TwoPointAnalysis(object):
                 tag=self.tag, ffit=self.c2.fastfit,
                 extend=True
             )
+        self.prior = prior
         # Model construction infers the fit times from c2
         model = get_two_point_model(self.c2, bool(nstates.no))
-        fitter = cf.CorrFitter(models=model)
+        self.fitter = cf.CorrFitter(models=model)
         data = {self.tag: self.c2}
-        fit = fitter.lsqfit(
+        fit = self.fitter.lsqfit(
             data=data, prior=prior, p0=prior.p0, **fitter_kwargs
         )
+        print(fit.p)
         if np.isnan(fit.chi2):
             fit = None
         return fit
@@ -239,7 +246,7 @@ class FormFactorAnalysis(object):
     def run_sequential_fits(
             self, nstates, tmin_override=None,
             width=0.1, fractional_width=False,
-            prior=None,
+            prior=None, chain=False, constrain=False,
             **fitter_kwargs):
         """
         Runs sequential fits.
@@ -266,8 +273,12 @@ class FormFactorAnalysis(object):
             width=width,
             fractional_width=fractional_width,
             **fitter_kwargs)            
-        self.fit_form_factor(nstates=nstates, **fitter_kwargs)
-        self.collect_statistics()
+        self.fit_form_factor(
+            nstates=nstates,
+            chain=chain,
+            constrain=constrain, 
+            **fitter_kwargs)
+        #self.collect_statistics()
 
     def mass(self, tag):
         """Gets the mass/energy of the ground state from full fit."""
@@ -328,36 +339,58 @@ class FormFactorAnalysis(object):
                     update_with=fit.p, width=width, fractional_width=fractional_width)
             self.fits[tag] = fit
 
-    def fit_form_factor(self, nstates, **fitter_kwargs):
+    def fit_form_factor(self, nstates, chain=False, constrain=False, **fitter_kwargs):
         """Run the joint fit of 2- and 3-point functions for form factor."""
-        pedestal = fitter_kwargs.pop('pedestal', None)
+        # Handle pedestal
+        pedestal = fitter_kwargs.pop('pedestal', None)    
         if pedestal is not None:
             self.pedestal = pedestal
-        models = [get_model(self.ds, tag, nstates, self.pedestal) for tag in self.ds]
-        models = [model for model in models if model is not None]
+        
+        # Handle prior
         prior = fitter_kwargs.get('prior')
         if prior is None:
-            fitter_kwargs['prior'] = self.prior
-        if len(models) == len(set(self.ds.keys())):        
-            self.fitter = cf.CorrFitter(models=models)
-            fit = self.fitter.lsqfit(data=self.ds, **fitter_kwargs)
-            if np.isnan(fit.chi2) or np.isinf(fit.chi2):
-                LOGGER.warning('Full joint fit failed.')
-                fit = None
-        else:
+            prior = self.prior
+        fitter_kwargs['prior'] = prior
+
+        # Handle models
+        models = []
+        for tag in self.ds:
+            model = get_model(self.ds, tag, nstates,self.pedestal, constrain)
+            if model is not None:
+                models.append(model)
+        
+        # Abort if too few models found
+        if len(models) != len(set(self.ds.keys())):        
             self.fitter = None
             fit = None
             LOGGER.warning('Insufficient models found. Skipping joint fit.')
+            return
+
+        # Run fit
+        self.fitter = cf.CorrFitter(models=models)
+        if chain:
+            _lsqfit = self.fitter.chained_lsqfit
+        else:
+            _lsqfit = self.fitter.lsqfit
+        fit = _lsqfit(data=self.ds, **fitter_kwargs)    
+        if np.isnan(fit.chi2) or np.isinf(fit.chi2):
+            LOGGER.warning('Full joint fit failed.')
+            fit = None
         self.fits['full'] = fit
-        if fit is not None:
-            if self.pedestal is not None:
-                sign = np.sign(self.pedestal)
-                vnn = self.pedestal + sign * _abs(fit.p['fluctuation'])
-                fit.p['Vnn'][0, 0] = vnn
-                fit.palt['Vnn'][0, 0] = vnn
-            else:
-                vnn = fit.p['Vnn'][0, 0]
-            self.r = convert_vnn_to_ratio(self.m_src, vnn)
+
+        # Abort if fit failed
+        if fit is None:
+            return
+
+        # Tidy up final results
+        if self.pedestal is not None:
+            sign = np.sign(self.pedestal)
+            vnn = self.pedestal + sign * _abs(fit.p['fluctuation'])
+            fit.p['Vnn'][0, 0] = vnn
+            fit.palt['Vnn'][0, 0] = vnn
+        else:
+            vnn = fit.p['Vnn'][0, 0]
+        self.r = convert_vnn_to_ratio(self.m_src, vnn)
             
     def collect_statistics(self):
         """Collect statistics about the fits."""
