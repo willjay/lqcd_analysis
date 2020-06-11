@@ -4,6 +4,7 @@ appearing in lsqfit.
 """
 import numpy as np
 import datetime as datetime
+from . import statistics
 
 def _to_text(adict):
     """ Wrapper for converting dicts to text for postgres"""
@@ -23,6 +24,9 @@ class SerializableNonlinearFit:
             self.failed = True
         else:
             self.failed = False
+        stats = statistics.FitStats(fit)
+        for attr in ['chi2','chi2_aug','nparams','ndata','q_value','p_value']:
+            self.__setattr__(attr, stats.__getattribute__(attr))    
 
     @property
     def p(self):
@@ -34,8 +38,11 @@ class SerializableNonlinearFit:
             'params': _to_text(self.p),
             'Q': self.Q,
             'chi2': self.chi2,
-            'nparams': sum([len(np.ravel(pj)) for pj in self.p.values()]),
-            'npoints': sum([len(yi) for yi in self.y.values()]),
+            'chi2_aug': self.chi2_aug,
+            'q_value': self.q_value,
+            'p_value': self.p_value,
+            'nparams': self.nparams,
+            'npoints': self.ndata,
             'calcdate': datetime.datetime.now(),
         }
         return payload

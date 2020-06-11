@@ -11,7 +11,6 @@ from . import models
 from . import correlator
 from . import dataset
 from . import bayes_prior
-from . import statistics
 from . import figures
 from . import serialize
 
@@ -251,7 +250,6 @@ class FormFactorAnalysis(object):
         self.prior = None
         self.fits = {}
         self.fitter = None
-        self.stats = {}
         self.r = None
         self.pedestal = None
 
@@ -290,7 +288,6 @@ class FormFactorAnalysis(object):
             chain=chain,
             constrain=constrain, 
             **fitter_kwargs)
-        #self.collect_statistics()
 
     def mass(self, tag):
         """Gets the mass/energy of the ground state from full fit."""
@@ -407,14 +404,6 @@ class FormFactorAnalysis(object):
         else:
             vnn = fit.p['Vnn'][0, 0]
         self.r = convert_vnn_to_ratio(self.m_src, vnn)
-            
-    def collect_statistics(self):
-        """Collect statistics about the fits."""
-        for tag, fit in self.fits.items():
-            if fit is not None:
-                self.stats[tag] = statistics.FitStats(fit)
-            else:
-                self.stats[tag] = None
 
     def plot_results(self, axarr=None):
         return figures.plot_form_factor_results(self, axarr)
