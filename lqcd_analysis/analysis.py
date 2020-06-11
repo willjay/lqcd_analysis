@@ -430,3 +430,72 @@ class FormFactorAnalysis(object):
 
     def plot_form_factor(self, ax=None, tmax=None, color='k', prior=True):
         return figures.plot_form_factor(self, ax, tmax, color, prior)
+
+
+class RatioAnalysis(object):
+
+    def __init__(self, ds, nstates, restrict=None):
+        self.ds = ds
+        self.n = nstates.n
+        self.m = nstates.m
+        self.restrict = restrict
+        assert False, "RatioAnalysis is not debugged. Use with care!"
+                
+    @property
+    def t_snks(self):
+        if self.restrict is None:
+            return self.ds.t_snks
+        else:            
+            return [t_snk for t_snk in self.ds.t_snks if t_snk in self.restrict]
+
+    @property
+    def tfit(self):
+        return self.ds.tfit        
+        
+    def model(self, t, t_snk, params):
+
+        r = params['r'] 
+        ans = r
+        if self.n > 0:
+            for ai, dEi in zip(params['amp_src'], np.cumsum(params['dE_src'])):
+                ans = ans - ai * np.exp(-dEi * t)
+        if self.m > 0:
+            for ai, dEi in zip(params['amp_snk'], np.cumsum(params['dE_snk'])):
+                ans = ans - ai * np.exp(-dEi * (t_snk - t))
+        return ans
+        
+    def fitfcn(self, params):
+        ans = {}
+        for t_snk in self.t_snks:
+            tfit = self.tfit[t_snk]
+            ans[t_snk] = self.model(tfit, t_snk , params)
+        return ans
+
+    def buildy(self):
+        y = {}
+        for t_snk in self.ds.rbar:
+            x = self.tfit[t_snk]
+            y[t_snk] = self.ds.rbar[t_snk][x]
+        return y
+    
+    def buildprior(self):
+        r_guess = self.ds.r_guess
+        prior = {'log(r)': np.log(gv.gvar(r_guess, 0.1 * r_guess))}
+        if self.n > 0:
+            prior['amp_src'] = [gv.gvar("1.0(1.0)") for _ in np.arange(self.n)]
+            prior['log(dE_src)'] = [np.log(gv.gvar("0.5(0.5)")) for _ in np.arange(self.n)]
+        if self.m > 0:        
+            prior['amp_snk'] = [gv.gvar("1.0(1.0)") for _ in np.arange(self.m)]
+            prior['log(dE_snk)'] = [np.log(gv.gvar("0.5(0.5)")) for _ in np.arange(self.m)]
+        return prior
+        
+    def lsqfit(self, **fitter_kwargs):
+    
+        y = self.buildy()
+        if fitter_kwargs.get("prior") is None:
+            fitter_kwargs["prior"] = self.buildprior()
+        fit = lsqfit.nonlinear_fit(data=y, fcn=self.fitfcn, **fitter_kwargs)        
+        if np.isnan(fit.chi2) or np.isinf(fit.chi2):
+            LOGGER.warning('Full joint fit failed.')
+            fit = None
+        return fit
