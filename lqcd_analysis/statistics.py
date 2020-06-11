@@ -76,7 +76,7 @@ def chi2(fit, augmented=False, trust_lsqfit=False):
         if not augmented:
             LOGGER.warning((
                 "Caution: lsqfit computes an augmented chi2 function."
-                "Trusting lsqfit as specified anway."
+                "Trusting lsqfit as specified anyway."
             ))
         return fit.chi2
     # Standard chi2, without the term involving the prior
