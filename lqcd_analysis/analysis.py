@@ -12,7 +12,8 @@ from . import correlator
 from . import dataset
 from . import bayes_prior
 from . import statistics
-from . import visualize
+from . import figures
+from . import serialize
 
 LOGGER = logging.getLogger(__name__)
 
@@ -86,7 +87,10 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None,
         tags = dataset.Tags(src='light-light', snk='heavy-light')
     src = tags.src
     snk = tags.snk
-    
+    if max(tfit) > max(tdata):
+        LOGGER.error('Caution: max(tfit) exceeds max(tdata)')
+        LOGGER.error('Restrict max(tfit) to max(tdata)')
+        raise ValueError('Error: invalid tfit.')
     if tfit.size and np.all(np.isin(tfit, tdata)):
         a_pnames = (f'{src}:a', f'{src}:ao')
         b_pnames = (f'{snk}:a', f'{snk}:ao')
@@ -151,7 +155,10 @@ def get_model(ds, tag, nstates, pedestal=None, constrain=False):
         return get_two_point_model(ds[tag], osc)
     if isinstance(tag, int):
         t_snk = tag
-        return get_three_point_model(t_snk, ds.tfit[t_snk], ds.tdata, nstates, 
+        tdata = ds.c3.times.tdata
+        if max(tdata) > max(ds.tdata):
+            LOGGER.warning("Caution: Ignoring noise_threshy.")
+        return get_three_point_model(t_snk, ds.tfit[t_snk], tdata, nstates,
                                      pedestal=pedestal, constrain=constrain)
     raise TypeError("get_model() needs TwoPoint or ThreePoint objects.")
 
@@ -183,6 +190,11 @@ def convert_vnn_to_ratio(m_src, matrix_element):
     is closely related to the form factors themselves. See Eqs. 7-12 and
     39-41 of J. Bailey et al., Phys.Rev. D79 (2009) 054507
     [https://arxiv.org/pdf/0811.3640] for more context.
+    Note that the matrix element Vnn[0,0] coming from the fit using corrfitter
+    gives Vnn[0,0] = <final|J|initial> / sqrt(2 E_final) sqrt(2 E_initial).
+    The multiplicative factor of sqrt(2 m_src) below removes this factor coming
+    from the relativistic normalization of states, leaving the desired factor
+    from the sink intact.
     """
     return matrix_element * np.sqrt(2.0 * m_src)
 
@@ -224,8 +236,8 @@ class TwoPointAnalysis(object):
         fit = self.fitter.lsqfit(
             data=data, prior=prior, p0=prior.p0, **fitter_kwargs
         )
-        print(fit.p)
-        if np.isnan(fit.chi2):
+        fit = serialize.SerializableNonlinearFit(fit)
+        if fit.failed:
             fit = None
         return fit
 
@@ -335,8 +347,9 @@ class FormFactorAnalysis(object):
             if fit is None:
                 LOGGER.warning('Fit failed for two-point function %s.', tag)
             else:
-                self.prior.update(
-                    update_with=fit.p, width=width, fractional_width=fractional_width)
+                pass
+                # self.prior.update(
+                #     update_with=fit.p, width=width, fractional_width=fractional_width)
             self.fits[tag] = fit
 
     def fit_form_factor(self, nstates, chain=False, constrain=False, **fitter_kwargs):
@@ -348,7 +361,9 @@ class FormFactorAnalysis(object):
         
         # Handle prior
         prior = fitter_kwargs.get('prior')
-        if prior is None:
+        if prior is not None:
+            self.prior = prior
+        else:
             prior = self.prior
         fitter_kwargs['prior'] = prior
 
@@ -372,8 +387,9 @@ class FormFactorAnalysis(object):
             _lsqfit = self.fitter.chained_lsqfit
         else:
             _lsqfit = self.fitter.lsqfit
-        fit = _lsqfit(data=self.ds, **fitter_kwargs)    
-        if np.isnan(fit.chi2) or np.isinf(fit.chi2):
+        fit = _lsqfit(data=self.ds, **fitter_kwargs)
+        fit = serialize.SerializableNonlinearFit(fit)
+        if fit.failed:
             LOGGER.warning('Full joint fit failed.')
             fit = None
         self.fits['full'] = fit
@@ -401,169 +417,16 @@ class FormFactorAnalysis(object):
                 self.stats[tag] = None
 
     def plot_results(self, axarr=None):
-        """
-        Plots the result of the fit, taking the ratio of the fit to the data.
-        For good fits, this ratio should statistically consistent with unity.
-        """
-        nrows = len(self.fitter.models)
-        if axarr is None:
-            fig, axarr = visualize.subplots(nrows=nrows, sharex=True,
-                                            figsize=(10, 10))
-        if len(axarr) < nrows:
-            raise ValueError("Too few rows for plot_results()?")
-        fit = self.fits['full']
-        for ax, model in zip(axarr, self.fitter.models):
-            tag = model.datatag
-            ratio = self.ds[tag][model.tfit] / fit.fcn(fit.p)[tag]
-            visualize.errorbar(ax, x=model.tfit, y=ratio, fmt='.')
-            ax.axhline(1.0, ls='--', color='k')
-            ax.set_ylabel(f'{tag}')
-            ax.set_title('data/fit')
-        axarr[-1].set_xlabel('t/a')
-        return fig, axarr
-
-    def _plot_meff(self, ax, tag):
-        """Plots the effective mass and the FastFit guess for the given tag."""
-        corr = self.ds[tag]
-        label = 'Effective mass'
-        ax = corr.plot_meff(ax=ax, avg=False, fmt='.', label=label)
-        label = 'Smeared effective mass'
-        ax = corr.plot_meff(ax=ax, avg=True, fmt='.', label=label)
-        label = "FastFit guess"
-        visualize.axhline(ax, corr.fastfit.E, label=label, color='k', ls=':')
-        return ax
-
-    def _plot_fit_energies(self, ax, energy_tag, with_priors=True):
-        """Plots the fit energies associated with 'energy_tag'."""
-        # Plot the fit spectrum
-        masses = np.cumsum(self.fits['full'].p[energy_tag])
-        colors = visualize.color_palette(n_colors=len(masses))
-        for idx, mass in enumerate(masses):
-            visualize.axhline(ax, mass, label=f'Fit: E{idx}',
-                              alpha=0.75, color=colors[idx])
-        # Overlay the priors
-        if with_priors:
-            masses = np.cumsum(self.prior[energy_tag])
-            for idx, mass in enumerate(masses):
-                visualize.axhspan(ax, mass, label=f'Prior: E{idx}',
-                                  alpha=0.25, color=colors[idx])
-        return ax
+        return figures.plot_form_factor_results(self, axarr)
 
     def plot_energy_summary(self, ax, tag, osc=False, with_priors=True):
-        """ Makes summary plot of the energies."""
-        if osc:
-            energy_tag = f'{tag}:dEo'
-            title = f'Energies (oscillating states): {tag}'
-        else:
-            energy_tag = f'{tag}:dE'
-            title = f'Energies: {tag}'
-            # Effective mass defined for decaying states only
-            self._plot_meff(ax, tag)
-        self._plot_fit_energies(ax, energy_tag, with_priors)
-        ax.set_title(title)
-        ax.set_xlabel("$t/a$")
-        ax.set_ylabel("$Ea$")
-        ax.legend(loc=1)
-        return ax
-
-    def _plot_amp_eff(self, ax, tag):
-        """
-        Plots the effective amplitude, which (neglecting the
-        backward-propagating state) is given by: A_eff^2 = C(t)*Exp(m_eff*t).
-        Note that the effective mass function combines adjacent time slices and
-        so takes [tmin, tmin+1, ..., tmax-1, tmax] --> [tmin+1, ..., tmax-1],
-        which explains the slicing below.
-        """
-        corr = self.ds[tag]
-        meff = corr.meff(avg=True)
-        t = corr.times.tdata[1:-1]
-        y = np.sqrt((np.exp(meff * t)) * corr.avg()[1:-1])
-        # stop around halfway, since we neglect backward propagation
-        tmax = min(corr.times.nt // 2, max(t))
-        visualize.errorbar(ax, t[:tmax], y[:tmax],
-                           fmt='.', label='Effective amplitude')
-        # Fastfit guess
-        amp_ffit = np.sqrt(corr.fastfit.ampl)
-        visualize.axhline(ax, amp_ffit, label='ffit guess', color='k', ls=':')
-        return ax
-
-    def _plot_fit_amplitudes(self, ax, amp_tag, with_priors=True):
-        """Plots the fit energies associated with 'energy_tag'."""
-        # Plot the fit amplitudes
-        amps = self.fits['full'].p[amp_tag]
-        colors = visualize.color_palette(n_colors=len(amps))
-        for idx, amp in enumerate(amps):
-            label = f'Fit: A{idx}'
-            visualize.axhline(ax, amp, label=label, color=colors[idx])
-        # Overlay the priors
-        if with_priors:
-            amps = self.prior[amp_tag]
-            for idx, amp in enumerate(amps):
-                label = f'Prior: A{idx}'
-                visualize.axhspan(ax, amp, label=label,
-                                  alpha=0.25, color=colors[idx])
-        return ax
+        return figures.plot_energy_summary(self, ax, tag, osc, with_priors)
 
     def plot_amplitude_summary(self, ax, tag, osc=False, with_priors=True):
-        """ Make summary plot of the amplitudes"""
-        if osc:
-            amp_tag = f'{tag}:ao'
-            title = f'Partner Amplitudes: {tag}'
-        else:
-            amp_tag = f'{tag}:a'
-            title = f'Amplitudes: {tag}'
-            # Effective amplitude defined for decaying states only
-            ax = self._plot_amp_eff(ax, tag)
-
-        self._plot_fit_amplitudes(ax, amp_tag, with_priors)
-        ax.set_title(title)
-        ax.set_xlabel("$t/a$")
-        ax.set_ylabel("Amplitude (lattice units)")
-        ax.legend(loc=1)
-        return ax
+        return figures.plot_amplitude_summary(self, ax, tag, osc, with_priors)
 
     def plot_states(self, axarr=None, osc=False, with_priors=True):
-        """Plots a 2x2 summary of the masses and amplitudes."""
-        if axarr is None:
-            fig, axarr = visualize.subplots(nrows=2, ncols=2,
-                                            sharex=True, figsize=(20, 20))
-        ((ax1, ax2), (ax3, ax4)) = axarr
-        tags = self.ds._tags
-        # Masses in first row
-        for ax, tag in zip([ax1, ax2], tags):
-            _ = self.plot_energy_summary(ax, tag, osc=osc,
-                                         with_priors=with_priors)
-        # Amplitudes in second row
-        for ax, tag in zip([ax3, ax4], tags):
-            _ = self.plot_amplitude_summary(ax, tag, osc=osc,
-                                            with_priors=with_priors)
-        # Bands for fit range
-        ax_cols = [(ax1, ax3), (ax2, ax4)]
-        for tag, ax_col in zip(tags, ax_cols):
-            for ax in ax_col:
-                tmin = self.ds[tag].times.tmin
-                tmax = self.ds[tag].times.tmax
-                visualize.axvline(ax, tmin, color='k', ls='--')
-                visualize.axvline(ax, tmax, color='k', ls='--')
-        fig.tight_layout()
-        return axarr
+        return figures.plot_states(self, axarr, osc, with_priors)
 
-    def plot_form_factor(self, ax=None, tmax=None, color='k'):
-        """
-        Plot the ratio which delivers the form factor together
-        with the prior estimate and fit result.
-        """
-        # TODO: Handle possibility of nontrivial normalization factor
-        # norm = self.ds.normalization()
-        norm = 1.0 * self.ds.sign
-        # Plot ratio "R" of two- and three-point functions
-        ax = self.ds.plot_ratio(ax=ax, tmax=tmax)
-        # Plot the prior value for the plateau in "R"
-        visualize.axhspan(ax, y=self.r_prior * norm,
-                          alpha=0.25, color=color, label='Prior: R')
-        # Plot the fit value for the plateau in "R"
-        visualize.axhline(ax, y=self.r * norm,
-                          alpha=0.50, color=color, label='Fit: R')
-        ax.set_title("Form factor compared with estimates")
-        ax.legend(loc=1)
-        return ax
+    def plot_form_factor(self, ax=None, tmax=None, color='k', prior=True):
+        return figures.plot_form_factor(self, ax, tmax, color, prior)
