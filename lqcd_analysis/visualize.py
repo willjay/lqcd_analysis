@@ -55,7 +55,9 @@ def axhline(ax, y, alpha=None, **kwargs):
     mean = gv.mean(y)
     ax.axhline(mean, **kwargs)
     color = kwargs.get('color', 'k')
-    axhspan(ax, y, alpha=alpha, color=color)
+    xmin = kwargs.get('xmin', 0.0)
+    xmax = kwargs.get('xmax', 1.0)
+    axhspan(ax, y, alpha=alpha, color=color, xmin=xmin, xmax=xmax)
     return ax
 
 
