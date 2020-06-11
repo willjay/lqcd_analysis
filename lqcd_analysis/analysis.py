@@ -386,14 +386,14 @@ class FormFactorAnalysis(object):
             _lsqfit = self.fitter.lsqfit
         fit = _lsqfit(data=self.ds, **fitter_kwargs)
         fit = serialize.SerializableNonlinearFit(fit)
-        if fit.failed:
-            LOGGER.warning('Full joint fit failed.')
-            fit = None
         self.fits['full'] = fit
-
-        # Abort if fit failed
-        if fit is None:
-            return
+        if fit.failed:
+            LOGGER.warning('Full joint fit failed.')        
+        else:
+            # Update mass estimates in dataset, since the visualization of 
+            # the ratio R (or Rbar) is rather sensitive to the masses
+            self.ds.set_masses(fit.p['light-light:dE'][0],
+                               fit.p['heavy-light:dE'][0])
 
         # Tidy up final results
         if self.pedestal is not None:
@@ -405,6 +405,25 @@ class FormFactorAnalysis(object):
             vnn = fit.p['Vnn'][0, 0]
         self.r = convert_vnn_to_ratio(self.m_src, vnn)
 
+    def serialize(self):
+        payload = self.fits['full'].serialize()
+        payload['tmin_ll'] = self.ds[self.ds._tags.src].times.tmin
+        payload['tmin_hl'] = self.ds[self.ds._tags.snk].times.tmin
+        payload['tmax_ll'] = self.ds[self.ds._tags.src].times.tmax
+        payload['tmax_hl'] = self.ds[self.ds._tags.snk].times.tmax
+        payload['r'] = self.r
+        payload['r_guess'] = self.ds.r_guess
+        payload['is_sane'] = self.is_sane
+        payload['prior_alias'] = 'standard prior'
+        payload['pedestal'] = self.pedestal
+        # Infer nstates
+        nstates = count_nstates(self.fits['full'].p)
+        payload['n_decay_ll'] = nstates.n
+        payload['n_decay_hl'] = nstates.m
+        payload['n_oscillating_ll'] = nstates.no
+        payload['n_oscillating_hl'] = nstates.mo
+        return payload
+
     def plot_results(self, axarr=None):
         return figures.plot_form_factor_results(self, axarr)
 
@@ -414,12 +433,17 @@ class FormFactorAnalysis(object):
     def plot_amplitude_summary(self, ax, tag, osc=False, with_priors=True):
         return figures.plot_amplitude_summary(self, ax, tag, osc, with_priors)
 
-    def plot_states(self, axarr=None, osc=False, with_priors=True):
-        return figures.plot_states(self, axarr, osc, with_priors)
+    def plot_states(self, a_fm=None):
+        nstates = count_nstates(self.fits['full'].p)
+        return figures.plot_states(self, nstates, a_fm)
 
     def plot_form_factor(self, ax=None, tmax=None, color='k', prior=True):
         return figures.plot_form_factor(self, ax, tmax, color, prior)
 
+    def plot_comparison(self, a_fm=None):
+        fit = self.fits['full']
+        nstates = count_nstates(fit.p)
+        return figures.plot_comparison(nstates, fit.prior, fit.p, a_fm)
 
 class RatioAnalysis(object):
 
