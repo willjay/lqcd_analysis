@@ -429,8 +429,13 @@ class FormFactorDataset(object):
     @property
     def c3bar(self):
         """Fetch smeared three-point correlator."""
-        return self.c3.avg(m_src=self.c2_src.mass_avg,
-                           m_snk=self.c2_snk.mass_avg)
+        if self._mass_override:
+            m_src = self.m_src
+            m_snk = self.m_snk
+        else:
+            m_src = self.c2_src.mass_avg
+            m_snk = self.c2_snk.mass_avg
+        return self.c3.avg(m_src=m_src, m_snk=m_snk)
 
     @property
     def r(self):
@@ -442,7 +447,6 @@ class FormFactorDataset(object):
         """Compute the ratio of smeared two- and three-point correlators."""
         return self._ratio(avg=True)
 
-    @functools.lru_cache()
     def _ratio(self, avg=False):
         """
         Compute a useful ratio of correlation functions.
