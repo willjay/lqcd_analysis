@@ -10,3 +10,7 @@ from . import chipt
 from . import su2
 from . import su3
 from . import models
+from . import serialize
+from . import figures
+from . import statistics
+from . import utils
