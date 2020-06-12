@@ -47,10 +47,12 @@ def _check_duplicate_keys(keys):
 # TODO: delete
 #         exp_key = log_key[4:-1]
         if exp_key in keys:
-            msg = "Cannot have keys '{0}' and '{1}' together.".\
-                format(log_key, exp_key)
-            msg += " Pick one or the other."
-            raise ValueError(msg)
+            pass
+            # msg = "Cannot have keys '{0}' and '{1}' together.".\
+            #     format(log_key, exp_key)
+            # msg += " Pick one or the other."
+            # print(msg)
+            # raise ValueError(msg)
 
 
 def _sanitize_mapping(mapping):
@@ -138,6 +140,7 @@ class BasePrior(object):
     def _keys(self):
         for key in self.dict.keys():
             # nota bene: this enforces that these keys use log priors!
+            # if ('dE' in key) or ('fluctuation' in key):            
             if ('dE' in key) or (':a' in key) or ('fluctuation' in key):
                 yield 'log({0})'.format(key)
             else:
@@ -208,7 +211,8 @@ class MesonPrior(BasePrior):
         prior = {}
         # Decaying energies and amplitudes
         n = range(n_decay)
-        prior['dE'] = [gv.gvar('0.5(1.5)') for _ in n]
+        prior['dE'] = [gv.gvar('1.0(1.0)')] +\
+            [gv.gvar('0.6(0.6)') for _ in range(1, n_decay)]
         if 'a' in amps:
             prior['a'] = [gv.gvar('0.1(1.0)') for _ in n]
         if 'b' in amps:
@@ -216,8 +220,9 @@ class MesonPrior(BasePrior):
 
         # Oscillating eneriges and amplitudes
         if n_oscillate > 0:
-            no = range(n_oscillate)
-            prior['dEo'] = [gv.gvar('1.0(1.5)') for _ in no]
+            no = range(0, n_oscillate)
+            prior['dEo'] = [gv.gvar('1.65(50)')] +\
+                           [gv.gvar('0.6(0.6)') for _ in range(1, n_oscillate)]
             if 'ao' in amps:
                 prior['ao'] = [gv.gvar('0.1(1.0)') for _ in no]
             if 'bo' in amps:
@@ -250,42 +255,6 @@ class MesonPrior(BasePrior):
 
         return prior
 
-
-# def _estimate_r(ds, sign=1):
-#     """
-#     Estimate the 'plateau' value from ratios of 2- and 3-point functions.
-#     Args:
-#         ds: FormFactorDatset
-#     Returns:
-#         float, an estimate of the plateau
-#     """
-#     maxes = []
-#     for T_sink in ds.rbar:
-#         val = ds.rbar[T_sink]
-#         local_max = max(sign * gv.mean(val[:T_sink - 2]))
-#         maxes.append(local_max)
-#     r_guess = sign * max(maxes) * 1.05
-#     return r_guess
-
-
-# def _r_to_v(r_plateau, mass):
-#     """
-#     Compute the matrix element 'Vnn' from the plateau value 'R'.
-#     This matrix element is the form factor, up to some conventional
-#     normalization factors. The formula is $V_{nn} = R / \\sqrt{2 M_L}$,
-#     where $M_L$ is the mass of the 'light' state. For heavy-to-light
-#     transitions like D to K/pi, $M_L$ would be kaon or pion mass.
-#     For "degenerate" heavy-heavy transitions, $M_L$ is simply the mass.
-#     Args:
-#         r: the value for the plateau
-#         mass: the mass of the 'light' state
-#     Returns:
-#         gvar, the estimate of the matrix element 'Vnn'
-#     """
-#     vnn = gv.mean(r_plateau / np.sqrt(2.0 * mass))
-#     width = np.abs(0.1 * vnn)
-#     return gv.gvar(vnn, width)    
-    
 
 class FormFactorPrior(BasePrior):
     """
@@ -370,15 +339,16 @@ class FormFactorPrior(BasePrior):
 
         # General guesses
         tmp_prior = {}
-        tmp_prior['Vnn'] = gv.gvar(n * [m * ['0.1(2.0)']])
-        tmp_prior['Vno'] = gv.gvar(n * [mo * ['0.1(2.0)']])
-        tmp_prior['Von'] = gv.gvar(no * [m * ['0.1(2.0)']])
-        tmp_prior['Voo'] = gv.gvar(no * [mo * ['0.1(2.0)']])
-        v = gv.mean(ds.v_guess)
-        verr = 0.5 * _abs(v)
-        tmp_prior['Vnn'][0, 0] = gv.gvar(v, verr)
+        tmp_prior['Vnn'] = gv.gvar(n * [m * ['0.1(10.0)']])
+        tmp_prior['Vno'] = gv.gvar(n * [mo * ['0.1(10.0)']])
+        tmp_prior['Von'] = gv.gvar(no * [m * ['0.1(10.0)']])
+        tmp_prior['Voo'] = gv.gvar(no * [mo * ['0.1(10.0)']])
+        # v = gv.mean(ds.v_guess)
+        # verr = 0.5 * _abs(v)
+        # tmp_prior['Vnn'][0, 0] = gv.gvar(v, verr)
 
         if self.pedestal is not None:
+            raise ValueError("Pedestal is untrustworthy -- don't use.")
             if np.sign(self.pedestal) != np.sign(v):
                 raise ValueError(
                     "Sign of the specified pedestal disagrees with the sign"
@@ -395,6 +365,188 @@ class FormFactorPrior(BasePrior):
             tmp_prior['log(fluctuation)'] = np.log(gv.gvar(fluctuation, verr))
             
         return tmp_prior
+
+
+def vmatrix(nstates):
+    """
+    Get the prior for matrices of matrix elements Vnn, Vno, Von, and Voo in
+    lattice units.
+    """    
+    n = nstates.n
+    no = nstates.no
+    m = nstates.m
+    mo = nstates.mo
+    # General guesses
+    prior = {}
+    prior['Vnn'] = gv.gvar(n * [m * ['0.1(10.0)']])
+    prior['Vno'] = gv.gvar(n * [mo * ['0.1(10.0)']])
+    prior['Von'] = gv.gvar(no * [m * ['0.1(10.0)']])
+    prior['Voo'] = gv.gvar(no * [mo * ['0.1(10.0)']])
+    return prior    
+
+
+def pion_energy(n):
+    """
+    Get the energy of the nth excited pion in MeV.
+    """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(140, 50)
+    if n == 2:
+        return (gv.gvar(1300, 400))
+    return gv.gvar(1300 + 400*(n-2), 400)
+
+
+def pion_osc_energy(n):
+    """
+    Get the energy of the nth excited opposite-parity pion in MeV.
+    """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(500, 300)
+    return gv.gvar(500 + 400*(n-1), 800)
+    
+
+def d_energy(n):
+    """ Get the energy of the nth excited D meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(1865, 200)
+    return gv.gvar(1865 + 700*(n-1), 700)
+
+
+def d_osc_energy(n):
+    """ Get the energy of the nth excted opposite-parity D meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(2300, 700)
+    return gv.gvar(2300 + 700*(n-1), 700)     
+
+
+def boost(dE, p2):
+    """
+    Boost the energy splittings with the squared momentum using the
+    relativistic dispersion relation. First sums the splittings dE to get
+    masses / energies. Then boosts and converts back to splittings.
+    Assumes dE and p2 are in the same units, e.g., lattice units.
+    Does *not* do any unit conversion. 
+    """
+    e2 = np.cumsum(dE)**2.0
+    boosted = np.sqrt(e2 + p2)
+    # "inverse" of cumsum
+    dE_boosted = np.ediff1d(boosted, to_begin=boosted[0])
+    # maintain the fractional uncertainty
+    tmp = []
+    for idx, (dEi, dEi_boosted) in enumerate(zip(dE, dE_boosted)):
+        if idx == 0:
+            frac = 0.75
+        else:
+            frac = gv.sdev(dEi)/gv.mean(dEi)
+        mean = gv.mean(dEi_boosted)
+        err  = frac * mean
+        tmp.append(gv.gvar(mean, err))
+    dE_boosted = np.array(tmp)
+    return dE_boosted
+
+
+class PhysicalSplittings():
+    """
+    Class for handling splittings inspired by physical results in the PDG.
+    Both lattice units and MeV are supported.
+    """
+    def __init__(self, state):
+        state = str(state).lower()
+        if state not in ['pion', 'pion_osc', 'd', 'd_osc']:
+            raise ValueError("Unrecognized state.")
+        self.state = state
+
+    def energy(self, n):
+        if self.state == 'pion':
+            return pion_energy(n)
+        elif self.state == 'pion_osc':
+            return pion_osc_energy(n)
+        elif self.state == 'd':
+            return d_energy(n)
+        elif self.state == 'd_osc':
+            return d_osc_energy(n)
+        else:
+            raise ValueError("Unrecognized state")
+   
+    def __call__(self, n, a_fm=None):
+        """
+        Get the energy splittings for n states in MeV (when a_fm is None) or
+        lattice units (when a_fm is specified).
+        """
+        # Get energies in MeV
+        energies = np.array([self.energy(ni) for ni in range(n+1)])
+        # Convert to energy splittings
+        dE = energies[1:] - energies[:-1]
+        if a_fm is None:
+            return dE
+        # Convert MeV to lattice units 
+        dE = dE * a_fm / 197
+        return dE
+
+
+def decay_amplitudes(n):
+    """
+    Get basic amplitude guesses in lattice units for n total decaying states.
+    """
+    def _amplitude(n):
+        if n == 0:
+            return gv.gvar("0.50(20)")
+        else:
+            return gv.gvar("0.1(0.3)")
+    return np.array([_amplitude(ni) for ni in range(n)])
+
+
+def osc_amplitudes(n):
+    """
+    Get basic amplitude guesses in lattice units for n total oscillating states.
+    """
+    return np.array([gv.gvar("0.1(1.0)") for _ in range(n)])
+  
+
+class FormFactorPriorD2Pi(BasePrior):
+    """
+    Class for building priors for D to pi form factor analyses inspired by
+    physical results in the PDG.
+    """
+    def __init__(self, nstates, ds=None, a_fm=None, **kwargs):
+        prior = {}
+        # Decaying states
+        prior['light-light:dE'] = PhysicalSplittings('pion')(nstates.n, a_fm)
+        prior['light-light:a'] = decay_amplitudes(nstates.n)
+        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)        
+        prior['heavy-light:a'] = decay_amplitudes(nstates.m)
+        # Oscillating states
+        if nstates.no:
+            prior['light-light:dEo'] = PhysicalSplittings('pion_osc')(nstates.no, a_fm)
+            prior['light-light:ao'] = osc_amplitudes(nstates.no)
+        if nstates.mo:
+            prior['heavy-light:dEo'] = PhysicalSplittings('d_osc')(nstates.mo, a_fm)
+            prior['heavy-light:ao'] = osc_amplitudes(nstates.mo)
+        
+        # Matrix elements Vnn
+        for key, value in vmatrix(nstates).items():        
+            if value.size:  # skip empty matrices
+                prior[key] = value
+
+        # Make informed guesses for ground states and the form factor Vnn[0,0].
+        # Estimate central values as well as possible, but keep wide priors.
+        if ds is not None:
+            for tag in ['light-light', 'heavy-light']:
+                mean = gv.mean(ds[tag].mass)  # Central value from "meff"
+                err = gv.sdev(prior[f"{tag}:dE"][0])
+                prior[f"{tag}:dE"][0] = gv.gvar(mean, err)
+            mean = gv.mean(ds.v_guess)  # Central value from ratio R
+            err = gv.sdev(prior['Vnn'][0, 0])
+            prior['Vnn'][0,0] = gv.gvar(mean, err)
+        super(FormFactorPriorD2Pi, self).__init__(mapping=prior, **kwargs)
 
 
 if __name__ == '__main__':
