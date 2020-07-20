@@ -544,7 +544,7 @@ class FormFactorPriorD2Pi(BasePrior):
                 err = gv.sdev(prior[f"{tag}:dE"][0])
                 prior[f"{tag}:dE"][0] = gv.gvar(mean, err)
             mean = gv.mean(ds.v_guess)  # Central value from ratio R
-            err = gv.sdev(prior['Vnn'][0, 0])
+            err = 0.5 * mean
             prior['Vnn'][0,0] = gv.gvar(mean, err)
         super(FormFactorPriorD2Pi, self).__init__(mapping=prior, **kwargs)
 
