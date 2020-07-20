@@ -10,7 +10,7 @@ import logging
 import numpy as np
 import gvar as gv
 from . import fastfit
-from . import visualize
+from . import visualize as plt
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -195,29 +195,30 @@ class TwoPoint(object):
     def plot_corr(self, ax=None, avg=False, **kwargs):
         """Plot the correlator on a log scale."""
         if ax is None:
-            _, ax = visualize.subplots(1, figsize=(10, 5))
+            _, ax = plt.subplots(1, figsize=(10, 5))
         if avg:
             y = self.avg()
             x = self.times.tfit[1:-1]
         else:
             y = self.ydata
             x = self.times.tdata
-        visualize.errorbar(ax, x, y, **kwargs)
+        ax = plt.mirror(ax, x=x, y=y, **kwargs)
         ax.set_yscale('log')
         return ax
 
-    def plot_meff(self, ax=None, avg=False, **kwargs):
+    def plot_meff(self, ax=None, avg=False, a_fm=None, **kwargs):
         """Plot the effective mass of the correlator."""
         if ax is None:
-            _, ax = visualize.subplots(1)
+            _, ax = plt.subplots(1)
         if avg:
             y = effective_mass(self.avg())
             x = self.times.tdata[1:-1]
-            visualize.errorbar(ax, x, y, **kwargs)
         else:
             y = effective_mass(self.ydata)
             x = self.times.tdata[1:-1]
-            visualize.errorbar(ax, x, y, **kwargs)
+        if a_fm is not None:
+            y = y * 197 / a_fm    
+        plt.errorbar(ax, x, y, **kwargs)
         return ax
 
 
