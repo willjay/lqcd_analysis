@@ -49,7 +49,7 @@ def count_nstates(params, key_map=None, tags=None):
             'n': f'{src}:dE', 'no': f'{src}:dEo',
             'm': f'{snk}:dE', 'mo': f'{snk}:dEo',
         }
-    kwargs = {k1: len(params[k2]) for k1, k2 in key_map.items()}
+    kwargs = {key1: len(params.get(key2, [])) for key1, key2 in key_map.items()}
     return Nstates(**kwargs)
 
 
@@ -155,8 +155,8 @@ def get_model(ds, tag, nstates, pedestal=None, constrain=False):
     if isinstance(tag, int):
         t_snk = tag
         tdata = ds.c3.times.tdata
-        if max(tdata) > max(ds.tdata):
-            LOGGER.warning("Caution: Ignoring noise_threshy.")
+        #if max(tdata) > max(ds.tdata):
+            #LOGGER.warning("Caution: Ignoring noise_threshy.")
         return get_three_point_model(t_snk, ds.tfit[t_snk], tdata, nstates,
                                      pedestal=pedestal, constrain=constrain)
     raise TypeError("get_model() needs TwoPoint or ThreePoint objects.")
