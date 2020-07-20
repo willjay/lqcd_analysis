@@ -12,7 +12,7 @@ import pylab as plt
 import seaborn as sns
 from . import shrink
 from . import correlator
-from . import visualize
+from . import visualize as plt
 from . import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -524,32 +524,36 @@ class FormFactorDataset(object):
     def plot_corr(self, ax=None):
         """Plot the correlation functions in the dataset."""
         if ax is None:
-            _, ax = visualize.subplots(1, figsize=(10, 5))
+            _, ax = plt.subplots(1, figsize=(10, 5))
         colors = sns.color_palette()
         # Two-point functions
+        
         for color, tag in zip(colors, self._tags):
             # Raw data, with sawtooth oscillations
-            x = self.c2[tag].times.tdata
-            y = self.c2[tag]
-            visualize.errorbar(ax, x, y, color=colors[0], fmt='.')
+            self.c2[tag].plot_corr(ax=ax, color=color, label=tag)
+            # plt.mirror(ax, self.c2[tag], color=color, label=tag)
+            # x = self.c2[tag].times.tdata
+            # y = self.c2[tag]
+            # plt.errorbar(ax, x, y, color=colors[0], fmt='.')
             # Averaged data, with suppressed oscillations
-            x = self.c2[tag].times.tdata
-            y = self.c2[tag].avg()
-            visualize.errorbar(ax, x, y, color=colors[0], fmt='-')
+            # x = self.c2[tag].times.tdata
+            # y = self.c2[tag].avg()
+            # plt.errorbar(ax, x, y, color=colors[0], fmt='-')
         # Three-point functions
         c3 = self.c3
-        c3bar = self.c3bar
         for color, t_snk in zip(colors[2:], self.t_snks):
-            y = c3[t_snk][:]
-            x = c3.times.tdata
-            visualize.errorbar(ax, x, y, fmt='.', color=color)
-            if t_snk in c3bar:
-                y = c3bar[t_snk][:]
-                x = c3.times.tdata
-                visualize.errorbar(ax, x, y, fmt='-', color=color)
+            y = c3[t_snk][:t_snk+1]
+            plt.mirror(ax=ax, y=y, color=color, label=t_snk)
+            # y = c3[t_snk][:]
+            # x = c3.times.tdata
+            # plt.errorbar(ax, x, y, fmt='.', color=color)
+            # if t_snk in c3bar:
+            #     y = c3bar[t_snk][:]
+            #     x = c3.times.tdata
+            #     plt.errorbar(ax, x, y, fmt='-', color=color)
 
         ax.set_yscale('log')
-        ax.set_xlabel('t')
+        ax.set_xlabel('t/a')
         ax.set_ylabel('C(t)')
         return ax
 
@@ -573,7 +577,7 @@ class FormFactorDataset(object):
                 # Unsmeared "saw-tooth" ratio
                 label = "R, T={0}".format(t_snk)
                 y = self.sign * r[t_snk][t]
-                visualize.errorbar(
+                plt.errorbar(
                     ax, x, y,
                     label=label, color=color, fmt='-.', **plot_kwargs
                 )
@@ -581,7 +585,7 @@ class FormFactorDataset(object):
                 # Smeared ratio
                 label = "Rbar, T={0}".format(t_snk)
                 y = self.sign * rbar[t_snk][t]
-                visualize.errorbar(
+                plt.errorbar(
                     ax, x, y,
                     label=label, color=color, bands=bands, **plot_kwargs
                 )
