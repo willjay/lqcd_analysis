@@ -2,6 +2,7 @@
 Visualization routines
 """
 import gvar as gv
+import numpy as np
 import pylab as plt
 import seaborn as sns
 
@@ -45,6 +46,29 @@ def errorbar(ax, x, y, bands=False, **kwargs):
             alpha=alpha)
     else:
         ax.errorbar(x=x, xerr=xerr, y=y, yerr=yerr, **kwargs)
+    return ax
+
+
+def mirror(ax, y, x=None, label=None, color=None):
+    """
+    Makes a "mirror" plot, where negative values are mirrored to be positive.
+    Positive (negative) values appear with circles (squares) for markers.
+    """
+    if x is None:
+        x = np.arange(len(y))
+    neg = y < 0
+    pos = ~neg
+    errorbar(ax, x[pos], y[pos], marker='o', fmt='.', color=color, label=label)
+    color = ax.lines[-1].get_color()  # match color
+    errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color)
+    errorbar(ax, x, np.sign(y)*y, color=color)
+    return ax
+
+def noise_to_signal(ax, y, x=None, label=None, color=None):
+    """ Plots the noise-to-signal ratio as a percentage. """
+    y = 100 * gv.sdev(y) / gv.mean(y)
+    mirror(ax=ax, y=y, x=x, label=label, color=color)
+    ax.set_ylabel("n/s (%)")
     return ax
 
 
