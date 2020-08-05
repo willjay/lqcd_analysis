@@ -549,5 +549,22 @@ class FormFactorPriorD2Pi(BasePrior):
         super(FormFactorPriorD2Pi, self).__init__(mapping=prior, **kwargs)
 
 
+class MesonPriorPDG(BasePrior):
+    """
+    Class for building priors for analysis of pion 2pt functions inspired by
+    physical results in the PDG.
+    """
+    def __init__(self, nstates, tag='2pt', a_fm=None, **kwargs):
+        prior = {}
+        # Decaying states
+        prior[f"{tag}:dE"] = PhysicalSplittings('pion')(nstates.n, a_fm)
+        prior[f"{tag}:a"] = decay_amplitudes(nstates.n)
+        # Oscillating states
+        if nstates.no:
+            prior[f"{tag}:dEo"] = PhysicalSplittings('pion_osc')(nstates.no, a_fm)
+            prior[f"{tag}:ao"] = osc_amplitudes(nstates.no)
+        super(MesonPriorPDG, self).__init__(mapping=prior, **kwargs)
+
+
 if __name__ == '__main__':
     main()
