@@ -96,6 +96,8 @@ class BaseTimes(object):
         return "BaseTimes(tmin={0},tmax={1},nt={2},tp={3})".\
             format(self.tmin, self.tmax, self.nt, self.tp)
 
+    def __repr__(self):
+        return self.__str__()
 
 class TwoPoint(object):
     """TwoPoint correlation function."""
