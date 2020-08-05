@@ -2,6 +2,7 @@
 Implements a serializable extension of the various "nonlinear_fit" objects
 appearing in lsqfit.
 """
+import sys
 import logging
 import numpy as np
 import gvar as gv 
@@ -29,27 +30,30 @@ class SerializableNonlinearFit:
         else:
             self.failed = False
         stats = statistics.FitStats(fit)
-        for attr in ['chi2','chi2_aug','nparams','ndata','q_value','p_value']:
+        for attr in ['chi2','chi2_aug','nparams','ndata','q_value','p_value',
+                     'aic','model_probability']:    
             self.__setattr__(attr, stats.__getattribute__(attr))    
 
     @property
     def p(self):
         return self._getp()
     
-    def serialize(self):
+    def serialize(self, rawtext=True):
         payload = {
-            'prior': _to_text(self.prior),
-            'params': _to_text(self.p),
+            'prior': _to_text(self.prior) if rawtext else self.prior,
+            'params': _to_text(self.p) if rawtext else self.p,
             'q': self.Q,
-            'chi2': self.chi2_aug,
-            'chi2 (correlated)': self.chi2,
-            'chi2/dof': self.chi2_aug/self.dof,
+            'chi2_aug': self.chi2_aug,
+            'chi2': self.chi2,
+            'chi2_per_dof': self.chi2_aug/self.dof,
             'dof': self.dof,
             'q_value': self.q_value,
             'p_value': self.p_value,
             'nparams': self.nparams,
             'npoints': self.ndata,
             'calcdate': datetime.datetime.now(),
+            'aic': self.aic,
+            'model_probability': self.model_probability,
         }
         return payload
 
