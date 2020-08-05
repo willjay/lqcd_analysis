@@ -210,6 +210,8 @@ class TwoPointAnalysis(object):
         self.c2 = c2
         self.prior = None
         self.fitter = None
+        self._nstates = None
+        self._fit = None
 
     def run_fit(self, nstates=Nstates(1, 0), prior=None, **fitter_kwargs):
         """
@@ -220,7 +222,7 @@ class TwoPointAnalysis(object):
             prior: BasicPrior object. Default is None, for which the fitter
                 tries to constuct a prior itself.
         """
-
+        self._nstates = nstates
         if prior is None:
             prior = bayes_prior.MesonPrior(
                 nstates.n, nstates.no, amps=['a', 'ao'],
@@ -236,9 +238,18 @@ class TwoPointAnalysis(object):
             data=data, prior=prior, p0=prior.p0, **fitter_kwargs
         )
         fit = serialize.SerializableNonlinearFit(fit)
+        self._fit = fit
         if fit.failed:
             fit = None
         return fit
+
+    def serialize(self, rawtext=True):
+        payload = self._fit.serialize(rawtext)
+        payload['tmin'] = self.c2.times.tmin
+        payload['tmax'] = self.c2.times.tmax
+        payload['n_decay'] = self._nstates.n
+        payload['n_oscillating'] = self._nstates.no
+        return payload
 
 
 class FormFactorAnalysis(object):
@@ -405,8 +416,8 @@ class FormFactorAnalysis(object):
             vnn = fit.p['Vnn'][0, 0]
         self.r = convert_vnn_to_ratio(self.m_src, vnn)
 
-    def serialize(self):
-        payload = self.fits['full'].serialize()
+    def serialize(self, rawtext=True):
+        payload = self.fits['full'].serialize(rawtext)
         payload['tmin_ll'] = self.ds[self.ds._tags.src].times.tmin
         payload['tmin_hl'] = self.ds[self.ds._tags.snk].times.tmin
         payload['tmax_ll'] = self.ds[self.ds._tags.src].times.tmax
