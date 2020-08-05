@@ -116,6 +116,61 @@ def count_nparams(params):
     return nparams
 
 
+def aic(fit):
+    """
+    Computes the Akaike information criterion for a given fit.
+    """
+    return chi2(fit, augmented=True) + 2.0 * count_nparams(fit.p)
+
+
+def aic_model_probability(fit):
+    """
+    Computes the model probability associated with the Akaike information
+    criterion. Generically, the raw (unnormalized) model probability is
+    raw prob = exp( -0.5 * IC).
+    In the present case,
+    IC = AIC - 2*(Ny - Ncut)
+       = chi^2 + 2*Nparams - 2*(Ny - Ncut).
+    This definition uses the following pieces:
+    * chi^2 is the augmented chi2,
+    * Nparams is the number of parameters in the model,
+    * Ny is the total number data points, and
+    * Ncut is the number of points cut / dropped by choosing tmin
+    The difference (Ny - Ngamma) > 0 is simply "Ndata", the total number of 
+    data points included in the fit. For a fixed model and fixed raw dataset, 
+    Nparams and Ny are constant and cancel in the normalized probabilites used
+    in model averaging. So, for fixed model and fixed raw dataset, 
+    IC --> chi^2 + 2 Ncut.
+    """
+    ndata = count_ndata(fit.y)
+    ic = aic(fit) - 2.0 * ndata
+    # Recall the basic log-likelihood function in least-squares fitting is 
+    # -1/2 * chi2^2, with a factor of -1/2. So we must multiply the information
+    # criterion by -1/2 in order to get the full log-likelihood.
+    log_likelihood = -0.5 * ic
+    return np.exp(log_likelihood)
+
+
+def model_avg(gv_list, pr_list):
+    """
+    Given a list of single-model expectation values {<f(a)>_M} as gvars, and a
+    list of raw model probabilities, computes the model-averaged estimate for
+    <f(a)> as a gvar.
+    """
+    # Normalize model probabilities to 1
+    prob = pr_list / np.sum(pr_list)
+    # Mean is just the weighted average
+    mean_avg = np.sum(gv.mean(gv_list) * prob)
+    # Variance
+    # First, a weighted average of individual variances
+    var_avg = np.sum(gv.var(gv_list) * prob)
+    # Second, the "systematic error" due to model choice
+    # <a>^2 P(M|D) - (<a> P(M|D))^2
+    var_avg += np.sum(gv.mean(gv_list)**2 * prob)  
+    var_avg -= (np.sum(gv.mean(gv_list) * prob))**2
+    return gv.gvar(mean_avg, np.sqrt(var_avg))
+
+
 class FitStats(object):
     """Container for various fit statistics."""
     def __init__(self, fit):
@@ -125,3 +180,5 @@ class FitStats(object):
         self.ndata = count_ndata(fit.y)
         self.q_value = correlated_q(self.chi2_aug, self.ndata)
         self.p_value = correlated_p(self.chi2, self.ndata, self.nparams)
+        self.aic = aic(fit)
+        self.model_probability = aic_model_probability(fit)
