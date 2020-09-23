@@ -30,6 +30,10 @@ def plot(ax, y, **kwargs):
 
 def errorbar(ax, x, y, bands=False, **kwargs):
     """Wrapper to plot gvars using the matplotlib function errorbar."""
+    if hasattr(y, 'values'):
+        y = y.values
+    if hasattr(x, 'values'):
+        x = x.values
     xerr = gv.sdev(x)
     x = gv.mean(x)
     yerr = gv.sdev(y)
