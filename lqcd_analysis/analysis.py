@@ -249,6 +249,8 @@ class TwoPointAnalysis(object):
         payload['tmax'] = self.c2.times.tmax
         payload['n_decay'] = self._nstates.n
         payload['n_oscillating'] = self._nstates.no
+        payload['energy'] = self._fit.p[f"{self.tag}:dE"][0]
+        payload['amp'] = self._fit.p[f"{self.tag}:a"][0]
         return payload
 
 
