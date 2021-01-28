@@ -59,5 +59,5 @@ def m_rest(m_bare):
     """
     def func(am1):
         return sh(am1) - m_bare
-    return scipy.optimize.brentq(func, 0.75*m_rest, 1.25*m_rest)
+    return scipy.optimize.brentq(func, 0.75*m_bare, 1.25*m_bare)
         
