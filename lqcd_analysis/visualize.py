@@ -8,6 +8,7 @@ import seaborn as sns
 
 
 def color_palette(*args, **kwargs):
+    """ Wrapper for seaborn.color_palette """
     return sns.color_palette(*args, **kwargs)
 
 
@@ -60,12 +61,15 @@ def mirror(ax, y, x=None, label=None, color=None):
     """
     if x is None:
         x = np.arange(len(y))
+    if len(x) != len(y):
+        raise ValueError(
+            f"Size mismatch between x and y: len(x)={len(x)}, len(y)={len(y)}")
     neg = y < 0
     pos = ~neg
     errorbar(ax, x[pos], y[pos], marker='o', fmt='.', color=color, label=label)
     color = ax.lines[-1].get_color()  # match color
-    errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color)
-    errorbar(ax, x, np.sign(y)*y, color=color)
+    errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color,
+             markerfacecolor='none', markeredgewidth=2)
     return ax
 
 def noise_to_signal(ax, y, x=None, label=None, color=None):
