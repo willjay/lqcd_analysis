@@ -120,11 +120,11 @@ def scale_mass(state, alias_light, alias_heavy):
     if state.lower() == 'k':
         if (light_quark, heavy_quark) == ('light', 'strange'):
             # Note: m_light = (1/27) x m_strange at the physical point
-            return np.sqrt(27./28.) * np.sqrt(light_factor/27. + heavy_factor) * mk
+            return np.sqrt(27./28.) * np.sqrt(light_factor/27. + heavy_factor) * MK
 
         if (light_quark, heavy_quark) == ('strange', 'strange'):
             # Note: m_light = (1/27) x m_strange at the physical point
-            return np.sqrt(27./28.) * np.sqrt(light_factor + heavy_factor) * mk
+            return np.sqrt(27./28.) * np.sqrt(light_factor + heavy_factor) * MK
 
         raise ValueError(
             "Unrecognized quarks for a kaon. Found %s, %s" %
