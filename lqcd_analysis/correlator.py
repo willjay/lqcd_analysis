@@ -19,6 +19,39 @@ def main():
     pass
 
 
+def effective_mass_local(data, ti=0, dt=1):
+    """
+    Computes a "local" effective mass.
+    Args:
+        data: array or list, correlator data C(t)
+        ti: int, the starting timeslice. Default is 0.
+        dt: int, the step between timeslices. Default is 1.
+    Returns:
+        array, the effective mass
+    Notes:
+    The standard "local" effective mass use the logarithm of the ratio of C(t)
+    on consecutive time slices: meff = log[C(t)/C(t+1)].
+    A trivial generalization works with C(t) on time slices separated by dt:
+    meff = (1/dt) * log[C(t)/C(t+dt)]. Choosing this form and using dt=2 is
+    particularly useful when working with staggered fermions, since
+    contamination from opposite-parity states enters with phase (-1)^t. That is,
+    such contributions change sign every other timeslice. In this case, it is
+    also useful to construct effective masses using even or odd timeslices only.
+
+    Examples:
+    >>> c2 = get_some_correlator_data(...)
+    >>> meff = effective_mass_local(c2)  # The usual local version
+    >>> meff_even = effective_mass_local(c2, ti=0, dt=2)  # Even timeslices only
+    >>> meff_odd = effective_mass_local(c2, ti=1, dt=2)  # Odd timeslices only
+    """
+    # tmp = data[ti::dt]
+    # c_t = tmp[:-1]
+    # c_tpdt = tmp[1:]
+    c_t = data[ti::dt][:-1]
+    c_tpdt = data[ti::dt][1:]
+    return np.array((1/dt)*np.log(c_t/c_tpdt))
+
+
 def effective_mass(data):
     """
     Computes the effective mass analytically using the following formula
@@ -122,7 +155,7 @@ class TwoPoint(object):
 
     def set_mass(self, mass):
         self._mass = mass
-            
+    
     @property
     def mass(self):
         """Estimate the mass using fastfit."""
@@ -131,8 +164,8 @@ class TwoPoint(object):
         if self.fastfit is not None:
             return self.fastfit.E
         msg = (
-           "Missing mass. No FastFit result, "
-           "and mass hasn't been set externally."
+            "Missing mass. No FastFit result, "
+            "and mass hasn't been set externally."
         )
         raise AttributeError(msg)
 
@@ -272,7 +305,7 @@ class ThreePoint(object):
                 + 2.0*np.roll(ratio, -1, axis=0)
                 + np.roll(ratio, -2, axis=0)
             )
-        
+
         t = np.arange(self.times.nt)
         c3bar = {}
         t_snks = np.sort(np.array(self.t_snks))
@@ -285,7 +318,7 @@ class ThreePoint(object):
             # When dT is odd, average the results for T and T+dT.
             # For the case dT=1, this average reduces to the cited equation.
             # When dT is even, just use the result for T by itself
-            if bool(dT % 2): 
+            if bool(dT % 2):
                 c3 = self.ydict[T+dT]  # C(t, T+dT)
                 ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T+dT-t))
                 tmp = 0.5 * (tmp + _combine(ratio))
