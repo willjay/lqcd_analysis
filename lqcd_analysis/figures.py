@@ -36,9 +36,10 @@ def _plot_meff(ax, corr, a_fm=None):
     ax = corr.plot_meff(ax=ax, avg=True, fmt='.', a_fm=a_fm,
                         label='Smeared effective mass')
     y = corr.fastfit.E
-    if a_fm is not None:
-        y = y * 197 / a_fm
-    plt.axhline(ax, y, color='k', ls=':', label='FastFit guess')
+    if y is not None:
+        if a_fm is not None:
+            y = y * 197 / a_fm
+        plt.axhline(ax, y, color='k', ls=':', label='FastFit guess')
     return ax
 
 
@@ -53,14 +54,19 @@ def _plot_amp_eff(ax, corr):
     meff = corr.meff(avg=True)
     t = corr.times.tdata[1:-1]
     y = np.sqrt((np.exp(meff * t)) * corr.avg()[1:-1])
-    y = y * np.sqrt(2.0 * corr.fastfit.E)
-    # stop around halfway, since we neglect backward propagation
-    tmax = min(corr.times.nt // 2, max(t))
-    plt.errorbar(ax, t[:tmax], y[:tmax],
-                        fmt='.', label='Effective amplitude')
-    # Fastfit guess
-    amp_ffit = np.sqrt(corr.fastfit.ampl) * np.sqrt(2.0 * corr.fastfit.E)
-    plt.axhline(ax, amp_ffit, label='ffit guess', color='k', ls=':')
+    energy = corr.fastfit.E
+    ampl = corr.fastfit.ampl
+    if energy:
+        y = y * np.sqrt(2.0 * energy)
+        # stop around halfway, since we neglect backward propagation
+        tmax = min(corr.times.nt // 2, max(t))
+        plt.errorbar(ax, t[:tmax], y[:tmax],
+                     fmt='.', label='Effective amplitude')
+    if energy and ampl:
+        # fastfit amplitude is the coefficient in A * exp(-m*t)
+        # The overlap is <0|O|state> = Sqrt(A) * Sqrt(2*E)
+        overlap = np.sqrt(ampl) * np.sqrt(2.0 * energy)
+        plt.axhline(ax, overlap, label='ffit guess', color='k', ls=':')
     return ax
 
 
