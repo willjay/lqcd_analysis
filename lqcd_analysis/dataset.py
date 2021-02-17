@@ -14,6 +14,7 @@ from . import shrink
 from . import correlator
 from . import visualize as plt
 from . import utils
+from . import staggered
 
 LOGGER = logging.getLogger(__name__)
 
@@ -282,13 +283,15 @@ def normalization(ns, momentum, current, energy_src, m_snk):
 def scalar_normalization(MB, Mpi, mb, mq):
     """
     Computes the factor to convert the ratio "R" into the properly normalized
-    scalar form factor. For example, see Eq. (2.3) of 
+    scalar form factor. For example, see Eq. (2.3) of the paper
     Daping Du et al., "Phenomenology of semileptonic B-meson decays with form
     factors from lattice QCD," Phys.Rev. D93 (2016) 034005 [arXiv:1510.02349].
-    The additional factor of Sqrt(2 MB) comes from the convention for the ratio 
+    The additional factor of Sqrt(2 MB) comes from the convention for the ratio
     "R".
     """
-    return np.sqrt(2.0*MB) * (mb - mq) / (MB**2.0 - Mpi**2.0)
+    mb_rest = staggered.m_rest(mb)
+    mq_rest = staggered.m_rest(mq)
+    return np.sqrt(2.0*MB) * (mb_rest - mq_rest) / (MB**2.0 - Mpi**2.0)
 
 
 class FormFactorDataset(object):
@@ -332,11 +335,27 @@ class FormFactorDataset(object):
             if not np.all(nt == nts[0]):
                 raise ValueError('tdata does not match across correlators')
 
-    def set_masses(self, m_src, m_snk):
+    def set_masses(self, m_src=None, m_snk=None):
         """Update the masses of the source and sink manually."""
-        self.c2[self._tags.src].set_mass(m_src)
-        self.c2[self._tags.snk].set_mass(m_snk)
-        self._mass_override = True
+        if m_src is not None:
+            self.c2[self._tags.src].set_mass(m_src)
+        if m_snk is not None:
+            self.c2[self._tags.snk].set_mass(m_snk)
+        if (m_src is not None) or (m_snk is not None):
+            self._mass_override = True
+
+    def set_times(self, times):
+        """Update the start times at the source and sink."""
+        # Source
+        if times.tmin_src is not None:
+            self.c2_src.times.tmin = times.tmin_src
+        if times.tmax_src is not None:
+            self.c2_src.times.tmax = times.tmax_src
+        # Sink
+        if times.tmin_snk is not None:
+            self.c2_snk.times.tmin = times.tmin_snk
+        if times.tmax_snk is not None:
+            self.c2_snk.times.tmax = times.tmax_snk
 
     @property
     def sign(self):
