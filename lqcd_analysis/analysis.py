@@ -34,6 +34,33 @@ def p2(ptag, ns):
     return phat2(ptag) * (2.0*np.pi/ns)**2.0
 
 
+def delta_continuum_dispersion(ea, pa2, ma, alpha_v):
+    """
+    The continuum dispersion relation E^2 = p^2 + m^2 is expected to be
+    satisfied up to lattice artifacts of order alpha (ap)^2. In other words,
+    | 1 - E^2 / (p^2 + m^2) | < Order(alpha_v (ap)^2)
+    To quantify how well this inequality is satisfied, divide both sides by the
+    RHS to obtain a test statistic which we call delta:
+    delta = | 1 - E^2 / (p^2 + m^2) | / (alpha_v (ap)^2)).
+    Continuum-like results should typically satisfy
+    (delta < 1) or perhaps (delta < 2).
+    The utility of this quantity, beyond the usual plots of E^2 / (p^2 + m^2),
+    is that provides an easy number to use as a cut for rejecting fits.
+    Args:
+        ea: float or gvar, the energy E*a in lattice units
+        pa2: float or gvar, the squared momentum (pa)^2 in lattice units
+        ma: float or gvar, the mass in lattice units
+        alpha_v: float or gvar, the strong coupling constant
+    Returns:
+        delta: float, the value of the test statistic
+    """
+    if pa2 > 0:
+        ratio = gv.mean(ea**2 / (ma**2 + pa2))
+        delta = np.abs(ratio - 1) / (alpha_v * pa2)
+        return gv.mean(delta)
+    return 0
+
+
 def count_nstates(params, key_map=None, tags=None):
     """
     Count the number of states used in fit.
