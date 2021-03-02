@@ -70,7 +70,7 @@ def effective_mass(data):
     domain = (cosh_m > 1)
     meff[domain] = np.arccosh(cosh_m[domain])
     meff[~domain] = gv.gvar(np.nan)
-    return meff    
+    return meff
 #     # TODO: Handle possible "RuntimeWarning: invalid value encountered in sqrt"
 #     return np.arccosh((data[2:] + data[:-2]) / (2.0 * data[1:-1]))
 
@@ -155,7 +155,7 @@ class TwoPoint(object):
 
     def set_mass(self, mass):
         self._mass = mass
-    
+
     @property
     def mass(self):
         """Estimate the mass using fastfit."""
@@ -237,7 +237,7 @@ class TwoPoint(object):
         else:
             y = self.ydata
             x = self.times.tdata
-        ax = plt.mirror(ax, x=x, y=y, **kwargs)
+        ax = plt.mirror(ax=ax, x=x, y=y, **kwargs)
         ax.set_yscale('log')
         return ax
 
@@ -252,10 +252,45 @@ class TwoPoint(object):
             y = effective_mass(self.ydata)
             x = self.times.tdata[1:-1]
         if a_fm is not None:
-            y = y * 197 / a_fm    
+            y = y * 197 / a_fm
         plt.errorbar(ax, x, y, **kwargs)
         return ax
 
+    def plot_n2s(self, ax=None, **kwargs):
+        if ax is None:
+            _, ax = plt.subplots(1)
+        y = self.ydata
+        y = gv.sdev(y) / gv.mean(y) * 100
+        x = self.times.tdata
+        ax = plt.mirror(ax=ax, x=x, y=y, **kwargs)
+        ax.set_yscale("log")
+        ax.set_ylabel("n/s [%]")
+        ax.set_xlabel("t/a")
+        return ax
+
+    def plot_summary(self, axarr=None, a_fm=None, avg=False, label=None):
+        """
+        Plot a brief summary of the correlator as a row
+        of three figures:
+        [Eorrelator C(t)] [Effective mass] [Noise-to-signal]
+        Args:
+            axarr: optional array of axes on which to plot
+            a_fm: float, the lattice spacing for conversion to MeV
+        Returns:
+            axarr: array of axes
+        """
+        if axarr is None:
+            _, axarr = plt.subplots(ncols=3, figsize=(15, 5))
+        ax1, ax2, ax3 = axarr
+
+        self.plot_corr(ax=ax1, label=label)
+        self.plot_meff(ax=ax2, a_fm=a_fm, fmt='o', avg=avg, label=label)
+        self.plot_n2s(ax=ax3, label=label)
+
+        ax1.set_title("Correlator C(t)")
+        ax2.set_title("Effective mass")
+        ax3.set_title("Noise-to-signal [%]")
+        return axarr
 
 class ThreePoint(object):
     """ThreePoint correlation function."""
