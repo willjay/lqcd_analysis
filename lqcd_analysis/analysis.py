@@ -22,6 +22,13 @@ Nstates = collections.namedtuple(
 def _abs(val):
     return val * np.sign(val)
 
+def n2s(val):
+    """
+    Computes the noise-to-signal ratio.
+    """
+    return gv.sdev(val) / gv.mean(val)
+
+
 def phat2(ptag):
     """
     Strip out the squared momentum $\\hat{p}^2$ from strings like 'p123'.
@@ -305,7 +312,7 @@ class FormFactorAnalysis(object):
         joint fit.
         """
         self.pedestal = fitter_kwargs.pop('pedestal', None)
-        if prior is None:            
+        if prior is None:
             self.prior = bayes_prior.FormFactorPrior(
                 nstates,
                 self.ds,
@@ -322,11 +329,11 @@ class FormFactorAnalysis(object):
             nstates=nstates,
             width=width,
             fractional_width=fractional_width,
-            **fitter_kwargs)            
+            **fitter_kwargs)
         self.fit_form_factor(
             nstates=nstates,
             chain=chain,
-            constrain=constrain, 
+            constrain=constrain,
             **fitter_kwargs)
 
     def mass(self, tag):
@@ -349,7 +356,7 @@ class FormFactorAnalysis(object):
     @property
     def matrix_element(self):
         """Fetches the matrix element Vnn[0, 0] needed for the form factor."""
-        if self.fits['full'] is not None:            
+        if self.fits['full'] is not None:
             return self.fits['full'].p['Vnn'][0, 0]
 
     @property
@@ -370,7 +377,7 @@ class FormFactorAnalysis(object):
         r_fit = np.abs(gv.mean(self.r))
         r_guess = np.abs(gv.mean(self.ds.r_guess))
         return r_fit >= r_guess
-    
+
     def fit_two_point(self, nstates, width=0.1, fractional_width=False, **fitter_kwargs):
         """Run the fits of two-point functions."""
         for tag in self.ds.c2:
@@ -392,10 +399,10 @@ class FormFactorAnalysis(object):
     def fit_form_factor(self, nstates, chain=False, constrain=False, **fitter_kwargs):
         """Run the joint fit of 2- and 3-point functions for form factor."""
         # Handle pedestal
-        pedestal = fitter_kwargs.pop('pedestal', None)    
+        pedestal = fitter_kwargs.pop('pedestal', None)
         if pedestal is not None:
             self.pedestal = pedestal
-        
+
         # Handle prior
         prior = fitter_kwargs.get('prior')
         if prior is not None:
@@ -410,9 +417,9 @@ class FormFactorAnalysis(object):
             model = get_model(self.ds, tag, nstates,self.pedestal, constrain)
             if model is not None:
                 models.append(model)
-        
+
         # Abort if too few models found
-        if len(models) != len(set(self.ds.keys())):        
+        if len(models) != len(set(self.ds.keys())):
             self.fitter = None
             fit = None
             LOGGER.warning('Insufficient models found. Skipping joint fit.')
@@ -428,9 +435,9 @@ class FormFactorAnalysis(object):
         fit = serialize.SerializableNonlinearFit(fit)
         self.fits['full'] = fit
         if fit.failed:
-            LOGGER.warning('Full joint fit failed.')        
+            LOGGER.warning('Full joint fit failed.')
         else:
-            # Update mass estimates in dataset, since the visualization of 
+            # Update mass estimates in dataset, since the visualization of
             # the ratio R (or Rbar) is rather sensitive to the masses
             self.ds.set_masses(fit.p['light-light:dE'][0],
                                fit.p['heavy-light:dE'][0])
@@ -464,8 +471,8 @@ class FormFactorAnalysis(object):
         payload['n_oscillating_hl'] = nstates.mo
         return payload
 
-    def plot_results(self, axarr=None):
-        return figures.plot_form_factor_results(self, axarr)
+    def plot_results(self, ax=None):
+        return figures.plot_form_factor_results(self, ax)
 
     def plot_energy_summary(self, ax, tag, osc=False, with_priors=True):
         return figures.plot_energy_summary(self, ax, tag, osc, with_priors)
@@ -493,21 +500,21 @@ class RatioAnalysis(object):
         self.m = nstates.m
         self.restrict = restrict
         assert False, "RatioAnalysis is not debugged. Use with care!"
-                
+
     @property
     def t_snks(self):
         if self.restrict is None:
             return self.ds.t_snks
-        else:            
+        else:
             return [t_snk for t_snk in self.ds.t_snks if t_snk in self.restrict]
 
     @property
     def tfit(self):
-        return self.ds.tfit        
-        
+        return self.ds.tfit
+
     def model(self, t, t_snk, params):
 
-        r = params['r'] 
+        r = params['r']
         ans = r
         if self.n > 0:
             for ai, dEi in zip(params['amp_src'], np.cumsum(params['dE_src'])):
@@ -516,7 +523,7 @@ class RatioAnalysis(object):
             for ai, dEi in zip(params['amp_snk'], np.cumsum(params['dE_snk'])):
                 ans = ans - ai * np.exp(-dEi * (t_snk - t))
         return ans
-        
+
     def fitfcn(self, params):
         ans = {}
         for t_snk in self.t_snks:
@@ -530,24 +537,24 @@ class RatioAnalysis(object):
             x = self.tfit[t_snk]
             y[t_snk] = self.ds.rbar[t_snk][x]
         return y
-    
+
     def buildprior(self):
         r_guess = self.ds.r_guess
         prior = {'log(r)': np.log(gv.gvar(r_guess, 0.1 * r_guess))}
         if self.n > 0:
             prior['amp_src'] = [gv.gvar("1.0(1.0)") for _ in np.arange(self.n)]
             prior['log(dE_src)'] = [np.log(gv.gvar("0.5(0.5)")) for _ in np.arange(self.n)]
-        if self.m > 0:        
+        if self.m > 0:
             prior['amp_snk'] = [gv.gvar("1.0(1.0)") for _ in np.arange(self.m)]
             prior['log(dE_snk)'] = [np.log(gv.gvar("0.5(0.5)")) for _ in np.arange(self.m)]
         return prior
-        
+
     def lsqfit(self, **fitter_kwargs):
-    
+
         y = self.buildy()
         if fitter_kwargs.get("prior") is None:
             fitter_kwargs["prior"] = self.buildprior()
-        fit = lsqfit.nonlinear_fit(data=y, fcn=self.fitfcn, **fitter_kwargs)        
+        fit = lsqfit.nonlinear_fit(data=y, fcn=self.fitfcn, **fitter_kwargs)
         if np.isnan(fit.chi2) or np.isinf(fit.chi2):
             LOGGER.warning('Full joint fit failed.')
             fit = None
