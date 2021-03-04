@@ -8,6 +8,7 @@ import seaborn as sns
 
 
 def color_palette(*args, **kwargs):
+    """ Wrapper for seaborn.color_palette """
     return sns.color_palette(*args, **kwargs)
 
 
@@ -22,10 +23,13 @@ def subplots(*args, **kwargs):
     return plt.subplots(*args, **kwargs)
 
 
-def plot(ax, y, **kwargs):
+def plot(y, ax=None, **kwargs):
     """Plot y on axis ax."""
+    if ax is None:
+        _, ax = plt.subplots(1)
     x = range(len(y))
     errorbar(ax, x, y, **kwargs)
+    return ax
 
 
 def errorbar(ax, x, y, bands=False, **kwargs):
@@ -53,19 +57,24 @@ def errorbar(ax, x, y, bands=False, **kwargs):
     return ax
 
 
-def mirror(ax, y, x=None, label=None, color=None):
+def mirror(y, x=None, ax=None, label=None, color=None):
     """
     Makes a "mirror" plot, where negative values are mirrored to be positive.
     Positive (negative) values appear with circles (squares) for markers.
     """
+    if ax is None:
+        _, ax = plt.subplots(1)
     if x is None:
         x = np.arange(len(y))
+    if len(x) != len(y):
+        raise ValueError(
+            f"Size mismatch between x and y: len(x)={len(x)}, len(y)={len(y)}")
     neg = y < 0
     pos = ~neg
     errorbar(ax, x[pos], y[pos], marker='o', fmt='.', color=color, label=label)
     color = ax.lines[-1].get_color()  # match color
-    errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color)
-    errorbar(ax, x, np.sign(y)*y, color=color)
+    errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color,
+             markerfacecolor='none', markeredgewidth=2)
     return ax
 
 def noise_to_signal(ax, y, x=None, label=None, color=None):

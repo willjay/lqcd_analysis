@@ -392,7 +392,7 @@ def pion_energy(n):
     if n == 0:
         return 0.
     if n == 1:
-        return gv.gvar(140, 50)
+        return gv.gvar(135, 50)
     if n == 2:
         return (gv.gvar(1300, 400))
     return gv.gvar(1300 + 400*(n-2), 400)
@@ -424,8 +424,29 @@ def d_osc_energy(n):
         return 0.
     if n == 1:
         return gv.gvar(2300, 700)
-    return gv.gvar(2300 + 700*(n-1), 700)     
+    return gv.gvar(2300 + 700*(n-1), 700)
 
+
+def b_energy(n):
+    """ Get the energy of the nth excited B meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        # Use the measured value from the PDG: M_B = 5280 MeV
+        return gv.gvar(5280, 200)
+    return gv.gvar(5280 + 1000*(n-1), 1000)
+
+
+def b_osc_energy(n):
+    """ Get the energy of the nth excted opposite-parity D meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        # Use a guess for the 1/2(0+) state, which has not yet been identified
+        # experimentally. I expect this state to be somewhat heavier than the
+        # B0, albeit with a large uncertainty on the precise value.
+        return gv.gvar(5600, 1000)
+    return gv.gvar(5600 + 1000*(n-1), 1000)
 
 def boost(dE, p2):
     """
@@ -433,7 +454,7 @@ def boost(dE, p2):
     relativistic dispersion relation. First sums the splittings dE to get
     masses / energies. Then boosts and converts back to splittings.
     Assumes dE and p2 are in the same units, e.g., lattice units.
-    Does *not* do any unit conversion. 
+    Does *not* do any unit conversion.
     """
     e2 = np.cumsum(dE)**2.0
     boosted = np.sqrt(e2 + p2)
@@ -460,8 +481,8 @@ class PhysicalSplittings():
     """
     def __init__(self, state):
         state = str(state).lower()
-        if state not in ['pion', 'pion_osc', 'd', 'd_osc']:
-            raise ValueError("Unrecognized state.")
+        if state not in ['pion', 'pion_osc', 'd', 'd_osc', 'b', 'b_osc']:
+            raise ValueError(f"Unrecognized state. Found state={state}")
         self.state = state
 
     def energy(self, n):
@@ -473,21 +494,27 @@ class PhysicalSplittings():
             return d_energy(n)
         elif self.state == 'd_osc':
             return d_osc_energy(n)
+        elif self.state == 'b':
+            return b_energy(n)
+        elif self.state == 'b_osc':
+            return b_osc_energy(n)
         else:
             raise ValueError("Unrecognized state")
-   
-    def __call__(self, n, a_fm=None):
+
+    def __call__(self, n, a_fm=None, scale=1.0):
         """
         Get the energy splittings for n states in MeV (when a_fm is None) or
         lattice units (when a_fm is specified).
         """
         # Get energies in MeV
         energies = np.array([self.energy(ni) for ni in range(n+1)])
+        # Apply scaling factor
+        energies = energies * scale
         # Convert to energy splittings
         dE = energies[1:] - energies[:-1]
         if a_fm is None:
             return dE
-        # Convert MeV to lattice units 
+        # Convert MeV to lattice units
         dE = dE * a_fm / 197
         return dE
 
@@ -509,7 +536,7 @@ def osc_amplitudes(n):
     Get basic amplitude guesses in lattice units for n total oscillating states.
     """
     return np.array([gv.gvar("0.1(1.0)") for _ in range(n)])
-  
+
 
 class FormFactorPriorD2Pi(BasePrior):
     """
@@ -521,7 +548,7 @@ class FormFactorPriorD2Pi(BasePrior):
         # Decaying states
         prior['light-light:dE'] = PhysicalSplittings('pion')(nstates.n, a_fm)
         prior['light-light:a'] = decay_amplitudes(nstates.n)
-        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)        
+        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)
         prior['heavy-light:a'] = decay_amplitudes(nstates.m)
         # Oscillating states
         if nstates.no:
@@ -530,7 +557,7 @@ class FormFactorPriorD2Pi(BasePrior):
         if nstates.mo:
             prior['heavy-light:dEo'] = PhysicalSplittings('d_osc')(nstates.mo, a_fm)
             prior['heavy-light:ao'] = osc_amplitudes(nstates.mo)
-        
+
         # Matrix elements Vnn
         for key, value in vmatrix(nstates).items():        
             if value.size:  # skip empty matrices
@@ -549,19 +576,74 @@ class FormFactorPriorD2Pi(BasePrior):
         super(FormFactorPriorD2Pi, self).__init__(mapping=prior, **kwargs)
 
 
+class FormFactorPriorD2D(BasePrior):
+    """
+    Class for building priors for generic form factor analyses inspired by
+    physical results in the PDG.
+    """
+    def __init__(self, nstates, ds=None, a_fm=None, heavy_factor=1.0, **kwargs):
+        prior = {}
+        # Decaying states
+        prior['light-light:dE'] = PhysicalSplittings('d')(nstates.n, a_fm)
+        prior['light-light:a'] = decay_amplitudes(nstates.n)
+        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)        
+        prior['heavy-light:a'] = decay_amplitudes(nstates.m)
+        # Oscillating states
+        if nstates.no:
+            prior['light-light:dEo'] = PhysicalSplittings('d_osc')(nstates.no, a_fm)
+            prior['light-light:ao'] = osc_amplitudes(nstates.no)
+        if nstates.mo:
+            prior['heavy-light:dEo'] = PhysicalSplittings('d_osc')(nstates.mo, a_fm)
+            prior['heavy-light:ao'] = osc_amplitudes(nstates.mo)
+        # Scale up the ground-state mass of the "heavy D-meson".
+        # Usually the "heavy D-meson" contains a heavier-than-physical "charm"
+        # quark with a mass like "1.4 m_charm". 
+        prior['heavy-light:dE'][0] = heavy_factor * prior['heavy-light:dE'][0]
+        prior['heavy-light:dEo'][0] = heavy_factor * prior['heavy-light:dEo'][0]
+
+        # Matrix elements Vnn
+        for key, value in vmatrix(nstates).items():        
+            if value.size:  # skip empty matrices
+                prior[key] = value
+
+        # Make informed guesses for ground states and the form factor Vnn[0,0].
+        # Estimate central values as well as possible, but keep wide priors.
+        if ds is not None:
+            for tag in ['light-light', 'heavy-light']:
+                mean = gv.mean(ds[tag].mass)  # Central value from "meff"
+                err = gv.sdev(prior[f"{tag}:dE"][0])
+                prior[f"{tag}:dE"][0] = gv.gvar(mean, err)
+            mean = gv.mean(ds.v_guess)  # Central value from ratio R
+            err = 0.5 * mean
+            prior['Vnn'][0,0] = gv.gvar(mean, err)
+        super(FormFactorPriorD2D, self).__init__(mapping=prior, **kwargs)
+        
+
 class MesonPriorPDG(BasePrior):
     """
     Class for building priors for analysis of pion 2pt functions inspired by
     physical results in the PDG.
+    Args:
+        nstates: namedtuple
+        tag: str, the name of the state
+        a_fm: float, the lattice spacing in fm
+        scale: float, amount by which to scale the spectrum with respect to the 
+            PDG value(s). This option is useful, e.g., for lighter-than-physical
+            b-quarks. For instance, the physical b quark as mass 
+            m_b ~ 4.2 m_charm, but a simulation might use 4.0 m_charm. In this
+            case, one might choose scale = 4.0 / 4.2. Default is unity.
+        kwargs: key-word arguments passed to constructor for BasePrior`
+    Returns:
+        MesonPriorPDG, a dict-like object containing the prior
     """
-    def __init__(self, nstates, tag, a_fm=None, **kwargs):
+    def __init__(self, nstates, tag, a_fm=None, scale=1.0, **kwargs):
         prior = {}
         # Decaying states
-        prior[f"{tag}:dE"] = PhysicalSplittings(tag)(nstates.n, a_fm)
+        prior[f"{tag}:dE"] = PhysicalSplittings(tag)(nstates.n, a_fm, scale)
         prior[f"{tag}:a"] = decay_amplitudes(nstates.n)
         # Oscillating states
         if nstates.no:
-            prior[f"{tag}:dEo"] = PhysicalSplittings(f"{tag}_osc")(nstates.no, a_fm)
+            prior[f"{tag}:dEo"] = PhysicalSplittings(f"{tag}_osc")(nstates.no, a_fm, scale)
             prior[f"{tag}:ao"] = osc_amplitudes(nstates.no)
         super(MesonPriorPDG, self).__init__(mapping=prior, **kwargs)
 

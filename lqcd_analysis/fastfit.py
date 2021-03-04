@@ -94,7 +94,10 @@ class FastFit(object):
         data = data[tmin:tmax]
 
         if not t.size:
-            raise ValueError('FastFit: tmin too large; no t values left')
+            raise ValueError(
+                'FastFit: tmin too large? No t values left. '
+                f'(tmin, tmax, tp)=({tmin}, {tmax}, {tp}).'
+                )
         self.tmin = tmin
         self.tmax = tmax
 

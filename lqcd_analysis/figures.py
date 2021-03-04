@@ -4,27 +4,31 @@ import seaborn as sns
 from . import visualize as plt
 
 
-def plot_form_factor_results(form_factor_fit, axarr=None):
+def plot_form_factor_results(form_factor_fit, ax=None):
     """
     Plots the ratio of the fit to data.
     For good fits, this ratio should statistically consistent with unity.
     """
-    nrows = len(form_factor_fit.fitter.models)
-    if axarr is None:
-        fig, axarr = plt.subplots(nrows=nrows, sharex=True,
-                                        figsize=(10, 10))
-    if len(axarr) < nrows:
-        raise ValueError("Too few rows for plot_results()?")
+    if ax is None:
+        _, ax = plt.subplots(1, figsize=(10, 5))
     fit = form_factor_fit.fits['full']
-    for ax, model in zip(axarr, form_factor_fit.fitter.models):
+    yticks = []
+    yticklabels = []
+    for idx, model in enumerate(form_factor_fit.fitter.models):
+        offset = idx*0.5
         tag = model.datatag
         ratio = form_factor_fit.ds[tag][model.tfit] / fit.fcn(fit.p)[tag]
-        plt.errorbar(ax, x=model.tfit, y=ratio, fmt='.')
-        ax.axhline(1.0, ls='--', color='k')
-        ax.set_ylabel(f'{tag}')
-        ax.set_title('data/fit')
-    axarr[-1].set_xlabel('t/a')
-    return fig, axarr
+        y = ratio + offset
+        kwargs = {'markeredgewidth':2, 'capsize':5, 'fmt':'.',}
+        plt.errorbar(ax=ax, x=model.tfit, y=y, **kwargs)
+        ax.axhline(y=1+offset, color='k')
+        yticks.append(1+offset)
+        yticklabels.append(tag)
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(yticklabels)
+    ax.set_title('data/fit')
+    ax.set_xlabel('t/a')
+    return ax
 
 
 def _plot_meff(ax, corr, a_fm=None):
@@ -36,9 +40,10 @@ def _plot_meff(ax, corr, a_fm=None):
     ax = corr.plot_meff(ax=ax, avg=True, fmt='.', a_fm=a_fm,
                         label='Smeared effective mass')
     y = corr.fastfit.E
-    if a_fm is not None:
-        y = y * 197 / a_fm
-    plt.axhline(ax, y, color='k', ls=':', label='FastFit guess')
+    if y is not None:
+        if a_fm is not None:
+            y = y * 197 / a_fm
+        plt.axhline(ax, y, color='k', ls=':', label='FastFit guess')
     return ax
 
 
@@ -53,14 +58,19 @@ def _plot_amp_eff(ax, corr):
     meff = corr.meff(avg=True)
     t = corr.times.tdata[1:-1]
     y = np.sqrt((np.exp(meff * t)) * corr.avg()[1:-1])
-    y = y * np.sqrt(2.0 * corr.fastfit.E)
-    # stop around halfway, since we neglect backward propagation
-    tmax = min(corr.times.nt // 2, max(t))
-    plt.errorbar(ax, t[:tmax], y[:tmax],
-                        fmt='.', label='Effective amplitude')
-    # Fastfit guess
-    amp_ffit = np.sqrt(corr.fastfit.ampl) * np.sqrt(2.0 * corr.fastfit.E)
-    plt.axhline(ax, amp_ffit, label='ffit guess', color='k', ls=':')
+    energy = corr.fastfit.E
+    ampl = corr.fastfit.ampl
+    if energy:
+        y = y * np.sqrt(2.0 * energy)
+        # stop around halfway, since we neglect backward propagation
+        tmax = min(corr.times.nt // 2, max(t))
+        plt.errorbar(ax, t[:tmax], y[:tmax],
+                     fmt='.', label='Effective amplitude')
+    if energy and ampl:
+        # fastfit amplitude is the coefficient in A * exp(-m*t)
+        # The overlap is <0|O|state> = Sqrt(A) * Sqrt(2*E)
+        overlap = np.sqrt(ampl) * np.sqrt(2.0 * energy)
+        plt.axhline(ax, overlap, label='ffit guess', color='k', ls=':')
     return ax
 
 

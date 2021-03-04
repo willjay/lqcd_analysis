@@ -5,10 +5,11 @@ appearing in lsqfit.
 import sys
 import logging
 import numpy as np
-import gvar as gv 
-import sys
-import datetime as datetime
+import gvar as gv
+import datetime
+import scipy.stats
 from . import statistics
+from . import visualize as plt
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ class SerializableNonlinearFit:
     def __init__(self, fit):
         # Copy over attributes to serializable instance
         for attr in dir(fit):
-            if attr in ['__class__', '__weakref__', 'p', 'format']:
+            if attr in ['__class__', '__weakref__', 'p', 'format',
+                        'qqplot_residuals', 'plot_residuals']:
                 continue
             self.__setattr__(attr, fit.__getattribute__(attr))
         if np.isnan(fit.chi2) or np.isinf(fit.chi2):
@@ -31,9 +33,9 @@ class SerializableNonlinearFit:
         else:
             self.failed = False
         stats = statistics.FitStats(fit)
-        for attr in ['chi2','chi2_aug','nparams','ndata','q_value','p_value',
-                     'aic','model_probability']:    
-            self.__setattr__(attr, stats.__getattribute__(attr))    
+        for attr in ['chi2', 'chi2_aug', 'nparams', 'ndata', 'q_value',
+                     'p_value', 'aic', 'model_probability']:
+            self.__setattr__(attr, stats.__getattribute__(attr))
 
     @property
     def p(self):
@@ -413,3 +415,86 @@ class SerializableNonlinearFit:
             table += fst[:-1] % tuple(di) + stars + '\n'
 
         return table + settings        
+
+    def qqplot_residuals(self, ax=None, qlow=0, qhigh=1):
+        """ QQ plot normalized fit residuals.
+
+        The sum of the squares of the residuals equals ``self.chi2``.
+        Individual residuals should be distributed in a Gaussian
+        distribution centered about zero. A Q-Q plot orders the
+        residuals and plots them against the value they would have if
+        they were distributed according to a Gaussian distribution.
+        The resulting plot will approximate a straight line along
+        the diagonal of the plot (dashed black line) if
+        the residuals have a Gaussian distribution with zero mean
+        and unit standard deviation.
+
+        The residuals are fit to a straight line and the fit
+        is displayed in the plot (solid red line). Residuals that
+        fall on a straight line have a distribution that is
+        Gaussian. A nonzero intercept indicates a bias in the mean, away from zero.
+        A slope smaller than 1.0 indicates the actual standard deviation
+        is smaller than suggested by the fit errors, as would be expected if
+        the ``chi2/dof`` is significantly below 1.0 (since ``chi2`` equals
+        the sum of the squared residuals).
+
+        One way to display the plot is with::
+
+            fit.qqplot_residuals().show()
+
+        Args:
+            plot: a :mod:`matplotlib` plotter. If ``None``,
+                uses ``matplotlib.pyplot``.
+
+        Returns:
+            Plotter ``plot``.
+
+        This method requires the :mod:`scipy` and :mod:`matplotlib` modules.
+        """
+        if ax is None:
+            _, ax = plt.subplots(1, figsize=(7, 7))
+
+        low, high = np.quantile(self.residuals, [qlow, qhigh])
+        mask = (low < self.residuals) & (self.residuals < high)
+        residuals = self.residuals[mask]
+
+        (x, y), (s, y0, r) = scipy.stats.probplot(residuals, plot=ax, fit=True)
+        xmin, xmax = min(x), max(x)
+        ax.plot([xmin, xmax], [xmin, xmax], 'k:')
+        label = (
+            r'residual = {:.2f} + {:.2f} $\times$ theory'
+            '\nr = {:.2f}').format(y0, s, r)
+        ax.set_title('Q-Q Plot')
+        ax.set_ylabel('Ordered fit residuals')
+        handles = ax.lines
+        labels = ["Residuals", label, None]
+        ax.legend(handles, labels, loc=0)
+
+        return ax
+
+    def plot_residuals(self, ax=None):
+        """ Plot normalized fit residuals.
+
+        The sum of the squares of the residuals equals ``self.chi2``.
+        Individual residuals should be distributed about one, in
+        a Gaussian distribution.
+
+        Args:
+            plot: :mod:`matplotlib` plotter. If ``None``,
+                uses ``matplotlib.pyplot``.
+
+        Returns:
+            Plotter ``plot``.
+        """
+        if ax is None:
+            _, ax = plt.subplots(1, figsize=(7, 7))
+        x = np.arange(1, len(self.residuals) + 1)
+        y = self.residuals
+        ax.plot(x, y, 'bo')
+        ax.set_ylabel('Normalized residuals')
+        xr = [x[0], x[-1]]
+        ax.plot([x[0], x[-1]], [0, 0], 'r-')
+        ax.fill_between(
+            x=xr, y1=[-1, -1], y2=[1, 1], color='r', alpha=0.075
+            )
+        return ax
