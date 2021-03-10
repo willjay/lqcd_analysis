@@ -328,7 +328,12 @@ class SerializableNonlinearFit:
 
         # settings
         settings = "\nSettings:"
-        if not self.add_svdnoise or self.svdcut is None or self.svdcut < 0:
+        # add_svdnoise named arg changed to noise in lsqfit 11.6.
+        try:
+            _noise = self.add_svdnoise
+        except AttributeError:
+            _noise = self.noise
+        if not _noise or self.svdcut is None or self.svdcut < 0:
             settings += "\n  svdcut/n = {svdcut:.2g}/{svdn}".format(
                 svdcut=self.svdcut if self.svdcut is not None else 0.0,
                 svdn=self.svdn

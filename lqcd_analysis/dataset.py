@@ -611,7 +611,7 @@ class FormFactorDataset(object):
 
         ax.set_xlabel('t/a')
         ax.set_ylabel('$\\bar{R}$ (lattice units)')
-        ax.legend(loc=0)
+        #ax.legend(loc=0)
         return ax
 
 

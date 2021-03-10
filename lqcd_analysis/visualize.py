@@ -42,9 +42,16 @@ def errorbar(ax, x, y, bands=False, **kwargs):
         y = y.values
     if hasattr(x, 'values'):
         x = x.values
-    xerr = gv.sdev(x)
+    try:
+        xerr = gv.sdev(x)
+    # sdev throws error w/ x = np.arange(>50)
+    except ZeroDivisionError:
+        xerr = 0.*np.array(x)  # in case x passed from plot().
     x = gv.mean(x)
-    yerr = gv.sdev(y)
+    try:
+        yerr = gv.sdev(y)
+    except ZeroDivisionError:
+        yerr = 0.*y
     y = gv.mean(y)
     if bands:
         ax.errorbar(x=x, y=y, **kwargs)
@@ -79,6 +86,10 @@ def mirror(y, x=None, ax=None, label=None, color=None):
     color = ax.lines[-1].get_color()  # match color
     errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color,
              markerfacecolor='none', markeredgewidth=2)
+    if neg.any():
+        errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color,
+                 markerfacecolor='none', markeredgewidth=2)
+    errorbar(ax, x, np.sign(y)*y, color=color)
     return ax
 
 def noise_to_signal(ax, y, x=None, label=None, color=None):
