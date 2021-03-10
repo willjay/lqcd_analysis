@@ -519,23 +519,23 @@ class PhysicalSplittings():
         return dE
 
 
-def decay_amplitudes(n):
+def decay_amplitudes(n, a0="0.50(20)", ai="0.1(0.3)"):
     """
     Get basic amplitude guesses in lattice units for n total decaying states.
     """
     def _amplitude(n):
         if n == 0:
-            return gv.gvar("0.50(20)")
+            return gv.gvar(a0)
         else:
-            return gv.gvar("0.1(0.3)")
+            return gv.gvar(ai)
     return np.array([_amplitude(ni) for ni in range(n)])
 
 
-def osc_amplitudes(n):
+def osc_amplitudes(n, ai="0.1(1.0)"):
     """
     Get basic amplitude guesses in lattice units for n total oscillating states.
     """
-    return np.array([gv.gvar("0.1(1.0)") for _ in range(n)])
+    return np.array([gv.gvar(ai) for _ in range(n)])
 
 
 class FormFactorPriorD2Pi(BasePrior):
@@ -584,17 +584,18 @@ class FormFactorPriorD2D(BasePrior):
     def __init__(self, nstates, ds=None, a_fm=None, heavy_factor=1.0, **kwargs):
         prior = {}
         # Decaying states
+        amp = "0.1(0.4)"  # Generic amplitude prior.
         prior['light-light:dE'] = PhysicalSplittings('d')(nstates.n, a_fm)
-        prior['light-light:a'] = decay_amplitudes(nstates.n)
-        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)        
-        prior['heavy-light:a'] = decay_amplitudes(nstates.m)
+        prior['light-light:a'] = decay_amplitudes(nstates.n, amp, amp)
+        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)
+        prior['heavy-light:a'] = decay_amplitudes(nstates.m, amp, amp)
         # Oscillating states
         if nstates.no:
             prior['light-light:dEo'] = PhysicalSplittings('d_osc')(nstates.no, a_fm)
-            prior['light-light:ao'] = osc_amplitudes(nstates.no)
+            prior['light-light:ao'] = osc_amplitudes(nstates.no, amp)
         if nstates.mo:
             prior['heavy-light:dEo'] = PhysicalSplittings('d_osc')(nstates.mo, a_fm)
-            prior['heavy-light:ao'] = osc_amplitudes(nstates.mo)
+            prior['heavy-light:ao'] = osc_amplitudes(nstates.mo, amp)
         # Scale up the ground-state mass of the "heavy D-meson".
         # Usually the "heavy D-meson" contains a heavier-than-physical "charm"
         # quark with a mass like "1.4 m_charm". 
