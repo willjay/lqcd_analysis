@@ -272,5 +272,86 @@ def relativistic_dispersion(dataframe, ax=None, x_offset=0, alpha_v=None, **kwar
     ax.set_xticks(xticks)
     ax.set_xticklabels([f"{xtick:.0f}" for xtick in xticks])
 
+    return ax
+
+
+def overlap(dataframe, ax, x_offset=0, alpha_v=None, a_fm=None, mass_dimension=2, **kwargs):
+    """
+    Plots the hadron-to-vacuum overlap factor <0|O|hadron> for some operator "O".
+    Also optionally plots the envelope of expected discretization errors of size O(alpha*(ap)^2).
+    Args:
+        dataframe: pandas.DataFrame with columns 'energy', 'p2', 'phat2'
+        ax: plot axis. Default is None
+        x_offset: float, amount by which to offset the horizontal axis. Default is 0.
+        alpha_v: float or gvar, the value of the strong coupling constant alpha_V(a/2) for optional
+            plotting of the envelope of expected discretization errors. Default is None.
+        a_fm: float, the lattice spacing in fm. Used optionally to convert the overlap factor into
+            physical units. Default is None.
+        mass_dimension: int, the mass dimension of the overlap factor. Used to optionally convert
+            the overlap factor into physical units. Default is 2, which is appropriate for mesonic
+            operators. See Notes below.
+        **kwargs: keyword arguments passed to the function errorbar
+    Returns:
+        ax: plot axis
+    Notes:
+        The spectral decomposition of a two-point function has the asymptotic form:
+        C(t) = \int d^3x <O(t,x)O(0)> ~ A^2 * exp(-E*t),
+        where A = <0|O|hadron> / Sqrt(2*E)
+        The overlap factor <0|O|hadron> is a useful quantity to visualize because it is invariant
+        under boosts, since the momentum dependence of the amplitude "A" comes entirely from the
+        factor of 2*E in the denominator.
+        Mesonic operators have the form (psibar*gamma*psi), where psi is a fermion field and gamma
+        denotes some product of Dirac matrices. Using the form of the 2pt function given above gives
+        [C(t)] = 4 x [psi] + [d^3x] = 4 x (3/2) - 3 = +3
+        ==> [A^2] = +3, i.e., [A] = +3/2
+        ==> [<0|O|hadron>] = [A Sqrt(E)] = (3/2) + (1/2) = +2
+        In other words, the mass dimension of a mesonic overlap factor is +2.
+    """
+    for col in ['p2', 'phat2']:
+        if col not in dataframe.columns:
+            raise ValueError("Missing column. Looking for '{col}' but found {dataframe.columns}")
+
+    dataframe = dataframe.sort_values(by='phat2')
+    x = dataframe['phat2'] + x_offset
+
+    if 'overlap' in dataframe.columns:
+        y = dataframe['overlap'].values
+    elif ('amp' in dataframe.columns) and ('energy' in dataframe.columns):
+        y = (dataframe['amp'] * np.sqrt(2.0 * dataframe['energy'])).values
+    else:
+        raise ValueError((
+            "Missing column. Looking for either 'overlap' or both 'amp' and 'energy'. "
+            f"Found {dataframe.columns}"))
+
+    if ax is None:
+        _, ax = plt.subplots(1, figsize=(5, 5))
+
+    # Move to physical units [Gev^2]
+    if a_fm is not None:
+        y = y * (0.197 / a_fm)**mass_dimension
+
+    kwargs['markeredgewidth'] = kwargs.get('markeredgewidth', 2)
+    kwargs['capsize'] = kwargs.get('capsize', 5)
+    kwargs['fmt'] = kwargs.get('fmt', 'o')
+    ax = plt.errorbar(ax, x, y, **kwargs)
+
+    # Plot envelope of expected discretization errors 1 +/- alpha (ap)^2
+    y_rest = y[0]
+    p2 = dataframe['p2'].values
+    if alpha_v is not None:
+        x = np.linspace(0, max(x))
+        y = y_rest * (1.0 + gv.mean(alpha_v) * np.linspace(0, max(p2)))
+        plt.errorbar(ax, x, y, color='k', fmt='--')
+        y = y_rest * (1.0 - gv.mean(alpha_v) * np.linspace(0, max(p2)))
+        ax = plt.errorbar(ax, x, y, color='k', fmt='--', label=r"$1 \pm \alpha_V(a/2) a^2 p^2$")
+
+    ax.set_xlabel(r"$\hat{p}^2$")
+    if a_fm is None:
+        ax.set_ylabel(r"$\langle 0| O | {\rm hadron} \rangle$ [GeV$^2$]")
+    else:
+        ax.set_ylabel(r"$\langle 0| O | {\rm hadron} \rangle$")
+    xticks = dataframe['phat2'].values
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([f"{xtick:.0f}" for xtick in xticks])
 
     return ax
