@@ -1,5 +1,9 @@
 """
-Visualization routines
+Visualization routines.
+This module should contain routines for making figures, mostly in the form of wrappers for seaborn
+and matplotlib to play nicely with standard objects encountered in physic analyses (e.g., gvars and
+DataFrames).
+Routines involving physics or analysis logic typically belong in the module figures.py.
 """
 import gvar as gv
 import numpy as np
