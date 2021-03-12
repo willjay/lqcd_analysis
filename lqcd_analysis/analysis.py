@@ -184,7 +184,7 @@ def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None,
 def get_model(ds, tag, nstates, pedestal=None, constrain=False):
     """Gets a corrfitter model"""
     if isinstance(ds[tag], correlator.TwoPoint):
-        osc = bool(nstates.no) if tag == ds._tags.src else bool(nstates.mo)
+        osc = bool(nstates.no) if tag == ds.tags.src else bool(nstates.mo)
         return get_two_point_model(ds[tag], osc)
     if isinstance(tag, int):
         t_snk = tag
@@ -344,13 +344,13 @@ class FormFactorAnalysis(object):
     @property
     def m_src(self):
         """Gets the mass/energy of the "source" ground state."""
-        src_tag = self.ds._tags.src
+        src_tag = self.ds.tags.src
         return self.mass(src_tag)
 
     @property
     def m_snk(self):
         """Gets the mass/energy of the "snk" ground state."""
-        snk_tag = self.ds._tags.snk
+        snk_tag = self.ds.tags.snk
         return self.mass(snk_tag)
 
     @property
@@ -361,7 +361,7 @@ class FormFactorAnalysis(object):
 
     @property
     def r_prior(self):
-        src_tag = self.ds._tags.src
+        src_tag = self.ds.tags.src
         m_src = gv.mean(self.prior[f'{src_tag}:dE'][0])
         matrix_element = self.prior['Vnn'][0, 0]
         return convert_vnn_to_ratio(m_src, matrix_element)
@@ -382,7 +382,7 @@ class FormFactorAnalysis(object):
         """Run the fits of two-point functions."""
         for tag in self.ds.c2:
             _nstates = nstates
-            if tag == self.ds._tags.snk:
+            if tag == self.ds.tags.snk:
               _nstates = Nstates(n=nstates.m, no=nstates.mo)
             # TODO: handle possible re-running if fit fails initially
             # In the other code, I reset the priors on dEo to match dE
@@ -432,7 +432,8 @@ class FormFactorAnalysis(object):
         else:
             _lsqfit = self.fitter.lsqfit
         fit = _lsqfit(data=self.ds, **fitter_kwargs)
-        fit = serialize.SerializableNonlinearFit(fit)
+        # fit = serialize.SerializableNonlinearFit(fit)
+        fit = serialize.SerializableFormFactor(fit, tags=self.ds.tags)
         self.fits['full'] = fit
         if fit.failed:
             LOGGER.warning('Full joint fit failed.')
@@ -453,12 +454,13 @@ class FormFactorAnalysis(object):
         self.r = convert_vnn_to_ratio(self.m_src, vnn)
 
     def serialize(self, rawtext=True):
+        sanitize = str if rawtext else lambda x: x
         payload = self.fits['full'].serialize(rawtext)
-        payload['tmin_ll'] = self.ds[self.ds._tags.src].times.tmin
-        payload['tmin_hl'] = self.ds[self.ds._tags.snk].times.tmin
-        payload['tmax_ll'] = self.ds[self.ds._tags.src].times.tmax
-        payload['tmax_hl'] = self.ds[self.ds._tags.snk].times.tmax
-        payload['r'] = self.r
+        payload['tmin_ll'] = self.ds[self.ds.tags.src].times.tmin
+        payload['tmin_hl'] = self.ds[self.ds.tags.snk].times.tmin
+        payload['tmax_ll'] = self.ds[self.ds.tags.src].times.tmax
+        payload['tmax_hl'] = self.ds[self.ds.tags.snk].times.tmax
+        payload['r'] = sanitize(self.r)
         payload['r_guess'] = self.ds.r_guess
         payload['is_sane'] = self.is_sane
         payload['prior_alias'] = 'standard prior'
