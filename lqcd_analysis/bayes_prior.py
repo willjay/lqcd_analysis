@@ -11,12 +11,12 @@ import re
 def main():
     """TODO: Add main function."""
 
-    
+
 def inflate(params, frac):
     """
     Inflates the width on the priors to frac*mean, unless the existing width is
     already wider.
-    """        
+    """
     for key, value in params.items():
         mean = gv.mean(value)
         sdev = np.maximum(frac*np.abs(mean), gv.sdev(value))
@@ -97,7 +97,7 @@ class BasePrior(object):
         """Get value corresponding to key, allowing for 'log' terms."""
         if self.extend and _is_log(key):
             return np.log(self.dict.__getitem__(key[4:-1]))
-        
+
         return self.dict.__getitem__(key)
 
     def __setitem__(self, key, value):
@@ -140,7 +140,7 @@ class BasePrior(object):
     def _keys(self):
         for key in self.dict.keys():
             # nota bene: this enforces that these keys use log priors!
-            # if ('dE' in key) or ('fluctuation' in key):            
+            # if ('dE' in key) or ('fluctuation' in key):
             if ('dE' in key) or (':a' in key) or ('fluctuation' in key):
                 yield 'log({0})'.format(key)
             else:
@@ -280,13 +280,13 @@ class FormFactorPrior(BasePrior):
         if ds is None:
             ds = {}
         else:
-            FormFactorPrior._verify_tags(ds._tags)
+            FormFactorPrior._verify_tags(ds.tags)
         self.positive_ff = positive_ff
         self.pedestal = pedestal
         super(FormFactorPrior, self).__init__(
                 mapping=self._build(nstates, ds),
                 **kwargs)
-                    
+
     @staticmethod
     def _verify_tags(tags):
         """Verify that the tags (from nstates) are supported."""
@@ -313,7 +313,7 @@ class FormFactorPrior(BasePrior):
     @staticmethod
     def _make_meson_prior(nstates, ds):
         """Build prior associated with the meson two-point functions."""
-        tags = ds._tags
+        tags = ds.tags
         meson_priors = [
             MesonPrior(nstates.n, nstates.no,
                        tag=tags.src, ffit=ds.c2_src.fastfit),
@@ -335,7 +335,7 @@ class FormFactorPrior(BasePrior):
         no = nstates.no
         m = nstates.m
         mo = nstates.mo
-        mass = ds[ds._tags.src].fastfit.E
+        mass = ds[ds.tags.src].fastfit.E
 
         # General guesses
         tmp_prior = {}
@@ -359,11 +359,11 @@ class FormFactorPrior(BasePrior):
             # Start with a 10% fluctuation on top of the pedestal
             fluctuation = 0.1 * _abs(v)
             # Start the matrix element at the pedestal with large uncertainty
-            tmp_prior['Vnn'][0, 0] = gv.gvar(v + sign * fluctuation, verr)            
+            tmp_prior['Vnn'][0, 0] = gv.gvar(v + sign * fluctuation, verr)
             # In the model function, the pedestal is a pure number without error
             # so the fluctuation should carry all the uncertainty.
             tmp_prior['log(fluctuation)'] = np.log(gv.gvar(fluctuation, verr))
-            
+
         return tmp_prior
 
 
@@ -371,7 +371,7 @@ def vmatrix(nstates):
     """
     Get the prior for matrices of matrix elements Vnn, Vno, Von, and Voo in
     lattice units.
-    """    
+    """
     n = nstates.n
     no = nstates.no
     m = nstates.m
@@ -382,7 +382,7 @@ def vmatrix(nstates):
     prior['Vno'] = gv.gvar(n * [mo * ['0.1(10.0)']])
     prior['Von'] = gv.gvar(no * [m * ['0.1(10.0)']])
     prior['Voo'] = gv.gvar(no * [mo * ['0.1(10.0)']])
-    return prior    
+    return prior
 
 
 def pion_energy(n):
@@ -407,7 +407,7 @@ def pion_osc_energy(n):
     if n == 1:
         return gv.gvar(500, 300)
     return gv.gvar(500 + 400*(n-1), 800)
-    
+
 
 def d_energy(n):
     """ Get the energy of the nth excited D meson in MeV. """
@@ -559,7 +559,7 @@ class FormFactorPriorD2Pi(BasePrior):
             prior['heavy-light:ao'] = osc_amplitudes(nstates.mo)
 
         # Matrix elements Vnn
-        for key, value in vmatrix(nstates).items():        
+        for key, value in vmatrix(nstates).items():
             if value.size:  # skip empty matrices
                 prior[key] = value
 
@@ -586,7 +586,7 @@ class FormFactorPriorD2D(BasePrior):
         # Decaying states
         prior['light-light:dE'] = PhysicalSplittings('d')(nstates.n, a_fm)
         prior['light-light:a'] = decay_amplitudes(nstates.n)
-        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)        
+        prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)
         prior['heavy-light:a'] = decay_amplitudes(nstates.m)
         # Oscillating states
         if nstates.no:
@@ -597,12 +597,12 @@ class FormFactorPriorD2D(BasePrior):
             prior['heavy-light:ao'] = osc_amplitudes(nstates.mo)
         # Scale up the ground-state mass of the "heavy D-meson".
         # Usually the "heavy D-meson" contains a heavier-than-physical "charm"
-        # quark with a mass like "1.4 m_charm". 
+        # quark with a mass like "1.4 m_charm".
         prior['heavy-light:dE'][0] = heavy_factor * prior['heavy-light:dE'][0]
         prior['heavy-light:dEo'][0] = heavy_factor * prior['heavy-light:dEo'][0]
 
         # Matrix elements Vnn
-        for key, value in vmatrix(nstates).items():        
+        for key, value in vmatrix(nstates).items():
             if value.size:  # skip empty matrices
                 prior[key] = value
 
@@ -617,7 +617,7 @@ class FormFactorPriorD2D(BasePrior):
             err = 0.5 * mean
             prior['Vnn'][0,0] = gv.gvar(mean, err)
         super(FormFactorPriorD2D, self).__init__(mapping=prior, **kwargs)
-        
+
 
 class MesonPriorPDG(BasePrior):
     """
@@ -627,9 +627,9 @@ class MesonPriorPDG(BasePrior):
         nstates: namedtuple
         tag: str, the name of the state
         a_fm: float, the lattice spacing in fm
-        scale: float, amount by which to scale the spectrum with respect to the 
+        scale: float, amount by which to scale the spectrum with respect to the
             PDG value(s). This option is useful, e.g., for lighter-than-physical
-            b-quarks. For instance, the physical b quark as mass 
+            b-quarks. For instance, the physical b quark as mass
             m_b ~ 4.2 m_charm, but a simulation might use 4.0 m_charm. In this
             case, one might choose scale = 4.0 / 4.2. Default is unity.
         kwargs: key-word arguments passed to constructor for BasePrior`

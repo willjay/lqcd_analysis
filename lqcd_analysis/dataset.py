@@ -23,7 +23,7 @@ Tags = collections.namedtuple('Tags', ['src', 'snk'])
 def main():
     """TODO: Add main function"""
 
-    
+
 def _valid(arr):
     """Restricts to elements which are neither infinite nor nans."""
     mean = gv.mean(arr)
@@ -155,7 +155,7 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None,
         final_cov: the final correct covariance "matrix" as a dictionary
     """
     if ordered_tags is None:
-        ordered_tags = sorted(data.keys(), key=str)     
+        ordered_tags = sorted(data.keys(), key=str)
     # shapes are (n,p), where n is nsamples and p is ndata
     try:
         sizes = [data[tag].shape[1] for tag in ordered_tags]
@@ -163,7 +163,7 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None,
         # edge case: single datum per sample
         sizes = [1 for tag in ordered_tags]
     total_size = np.sum(sizes)
-        
+
     shrink_fcns = {
         'RBLW': shrink.rblw_shrink_correlation_identity,
         'OA': shrink.oa_shrink_correlation_identity,
@@ -225,7 +225,7 @@ def build_dataset(data_ind, do_fold=True, binsize=10, shrink_choice=None,
 
     if aggressive:
         max_size = max([val.size for val in data_ind.values()])
-        
+
     tmp = {}
     for key, value in data_ind.items():
         if aggressive and (value.size != max_size):
@@ -314,18 +314,18 @@ class FormFactorDataset(object):
         self.c3 = correlator.ThreePoint(
             tag=None, ydict=ydict, noise_threshy=noise_threshy
         )
-        nt = self.c3.times.nt  
+        nt = self.c3.times.nt
         if tags is None:
-            self._tags = Tags(src='light-light', snk='heavy-light')
+            self.tags = Tags(src='light-light', snk='heavy-light')
         else:
-            self._tags = tags
+            self.tags = tags
         self.c2 = {}
-        for tag in self._tags:
+        for tag in self.tags:
             self.c2[tag] = correlator.TwoPoint(
                 tag, ds[tag], noise_threshy, nt=nt, skip_fastfit=skip_fastfit
             )
-        self._verify_tdata()        
-        
+        self._verify_tdata()
+
     def _verify_tdata(self):
         """Verify that all correlators have matching nt."""
         nts = [self.c2_src.times.nt,
@@ -338,9 +338,9 @@ class FormFactorDataset(object):
     def set_masses(self, m_src=None, m_snk=None):
         """Update the masses of the source and sink manually."""
         if m_src is not None:
-            self.c2[self._tags.src].set_mass(m_src)
+            self.c2[self.tags.src].set_mass(m_src)
         if m_snk is not None:
-            self.c2[self._tags.snk].set_mass(m_snk)
+            self.c2[self.tags.snk].set_mass(m_snk)
         if (m_src is not None) or (m_snk is not None):
             self._mass_override = True
 
@@ -358,6 +358,11 @@ class FormFactorDataset(object):
             self.c2_snk.times.tmax = times.tmax_snk
 
     @property
+    def _tags(self):
+        print("Warning! Use of private member FormFactorDataset is deprecated and will be removed.")
+        return self.tags
+
+    @property
     def sign(self):
         if self._sign is not None:
             return self._sign
@@ -371,13 +376,13 @@ class FormFactorDataset(object):
                     f"Sign mismatch for t_snk={t_snk}. "
                      "Please specify by hand at initalization.")
         # Reduce to a single sign
-        try: 
+        try:
             return get_sign(signs)
         except ValueError:
             raise ValueError(
                 f"Sign mismatch across t_snks, found {signs}. "
                  "Please specify by hand at initalization.")
-        
+
     @property
     def tdata(self):
         """ Get tdata from 0 to the smallest tmax. """
@@ -393,12 +398,12 @@ class FormFactorDataset(object):
         Compute tfit: restrict to constant separation from src/snk operators.
         """
         tfit = {}
-        for tag in self._tags:
+        for tag in self.tags:
             tfit[tag] = np.arange(self.c2[tag].times.tmin,
                                   self.c2[tag].times.tmax + 1)
         for t_snk in self.c3.t_snks:
-            tfit[t_snk] = np.arange(self.c2[self._tags.src].times.tmin,
-                                    t_snk - self.c2[self._tags.snk].times.tmin)
+            tfit[t_snk] = np.arange(self.c2[self.tags.src].times.tmin,
+                                    t_snk - self.c2[self.tags.snk].times.tmin)
         return tfit
 
     @property
@@ -409,12 +414,12 @@ class FormFactorDataset(object):
     @property
     def c2_src(self):
         """Fetch two-point correlator associated with source operator."""
-        return self.c2[self._tags.src]
+        return self.c2[self.tags.src]
 
     @property
     def c2_snk(self):
         """Fetch two-point correlator associated with sink operator."""
-        return self.c2[self._tags.snk]
+        return self.c2[self.tags.snk]
 
     @property
     def m_src(self):
@@ -436,14 +441,14 @@ class FormFactorDataset(object):
         """
         Fetch smeared two-point correlator associated with source operator.
         """
-        return self.c2bar[self._tags.src]
+        return self.c2bar[self.tags.src]
 
     @property
     def c2bar_snk(self):
         """
         Fetch smeared two-point correlator associated with sink operator.
         """
-        return self.c2bar[self._tags.snk]
+        return self.c2bar[self.tags.snk]
 
     @property
     def c3bar(self):
@@ -539,15 +544,15 @@ class FormFactorDataset(object):
     def v_guess(self):
         """Compute a guess for the target matrix element Vnn[0,0]."""
         return self.r_guess / np.sqrt(2.0 * self.m_src)
-    
+
     def plot_corr(self, ax=None):
         """Plot the correlation functions in the dataset."""
         if ax is None:
             _, ax = plt.subplots(1, figsize=(10, 5))
         colors = sns.color_palette()
         # Two-point functions
-        
-        for color, tag in zip(colors, self._tags):
+
+        for color, tag in zip(colors, self.tags):
             # Raw data, with sawtooth oscillations
             self.c2[tag].plot_corr(ax=ax, color=color, label=tag)
             # plt.mirror(ax, self.c2[tag], color=color, label=tag)
