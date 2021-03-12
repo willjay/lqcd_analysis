@@ -10,6 +10,7 @@ import datetime
 import scipy.stats
 from . import statistics
 from . import visualize as plt
+from . import dataset
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class SerializableNonlinearFit:
     @property
     def p(self):
         return self._getp()
-    
+
     def serialize(self, rawtext=True):
         payload = {
             'prior': _to_text(self.prior) if rawtext else self.prior,
@@ -140,7 +141,7 @@ class SerializableNonlinearFit:
                 if sdev == 0:
                     nstar = 5
                 else:
-                    try: 
+                    try:
                         nstar = int(abs(v1.mean - v2.mean) / sdev)
                     except:
                         return '  ! (Error)'
@@ -414,7 +415,7 @@ class SerializableNonlinearFit:
         for di, stars in zip(data, collect.stars):
             table += fst[:-1] % tuple(di) + stars + '\n'
 
-        return table + settings        
+        return table + settings
 
     def qqplot_residuals(self, ax=None, qlow=0, qhigh=1):
         """ QQ plot normalized fit residuals.
@@ -498,3 +499,25 @@ class SerializableNonlinearFit:
             x=xr, y1=[-1, -1], y2=[1, 1], color='r', alpha=0.075
             )
         return ax
+
+class SerializableFormFactor(SerializableNonlinearFit):
+
+    def __init__(self, fit, tags=None):
+        super(SerializableFormFactor, self).__init__(fit)
+        self.tags = dataset.Tags('src', 'snk') if tags is None else tags
+        if not hasattr(self.tags, "src"):
+            raise ValueError("missing tags.src")
+        if not hasattr(self.tags, "snk"):
+            raise ValueError("missing tags.snk")
+
+    def serialize(self, rawtext=True):
+        payload = super().serialize(rawtext)
+        sanitize = str if rawtext else lambda x: x
+        key_map = {
+            'energy_src': f"{self.tags.src}:dE",
+            'energy_snk': f"{self.tags.snk}:dE",
+            'amp_src': f"{self.tags.src}:a",
+            'amp_snk': f"{self.tags.snk}:a",}
+        for key, key_alt in key_map.items():
+            payload[key] = sanitize(self.p[key_alt][0])
+        return payload
