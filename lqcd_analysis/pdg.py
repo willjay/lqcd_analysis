@@ -18,7 +18,7 @@ MB = 5279.320 # MeV
 HBARC = 197.3269804 # MeV * fm
 
 
-def estiamte_mass(state, alias_light, alias_heavy, a_fm=None):
+def estimate_mass(state, alias_light, alias_heavy, a_fm=None):
     """
     Wrapper function for scale_mass(...) that provides support for switching to
     lattice units.
@@ -109,7 +109,7 @@ def scale_mass(state, alias_light, alias_heavy):
         if light_quark == 'light':
             return np.sqrt(light_factor) * MPI
 
-        if light_quark == 'strange': 
+        if light_quark == 'strange':
             # Note: m_light = (1/27) x m_strange at the physical point
             return np.sqrt(27.0 * light_factor) * MPI
 
