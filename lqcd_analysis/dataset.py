@@ -15,6 +15,7 @@ from . import correlator
 from . import visualize as plt
 from . import utils
 from . import staggered
+from . import pdg
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +43,70 @@ def get_sign(data):
     if not np.all(signs == signs[0]):
         raise ValueError(f"Sign mismatch.")
     return signs[0]
+
+
+def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3):
+    """
+    Wrangles raw data into a useful form ahead of passign to a fitter.
+    Args:
+        data_raw: dict with keys as arrays of shape (nconfigs, nt) containing the Monte Carlo data
+        sign: int, conventional sign (+1 or -1) of the matrix element / form factor. Default +1.
+        binsize: int, size of bins to use for blocking to remove autocorrelation time. Default 10.
+        shrink_choice: str, choice for shrink
+        noise_threshy: float, noise threshold for cutting the data. Default 0.3 (i.e., 30% noise)
+    Returns:
+        data: FormFactorDataset object
+    """
+    data_binned = build_dataset(
+        data_raw,
+        do_fold=True,
+        binsize=binsize,
+        shrink_choice=shrink_choice)
+    data = FormFactorDataset(
+        data_binned,
+        sign=sign,
+        noise_threshy=noise_threshy,
+        skip_fastfit=False)
+    return data
+
+def ensure_masses_exist(data, form_factor, a_fm, use_pdg=False):
+    """
+    Ensures that estimates exist for the masses in the given FormFactorDataset. When the data are
+    noisy, the default estimates can sometimes fail to exist, which causes problems for subsequent
+    fits, which depend on them for initial guesses and so on.
+    Args:
+        data: FormFactorDataset
+        form_factor: FormFactor object
+        a_fm: float, the lattice spacing in fm
+        use_pdg: whether to use PDG values to update existing empricial mass estimates
+    Returns:
+        FormFactorDataset, but with updated
+    """
+    hbarc = 197 # MeV * fm
+    # Recover if fastfits failed to estimate mass
+    if use_pdg or (data.m_src is None):
+        # src <--> daughter hadron
+        aliases = form_factor.identify_daughter_quarks()
+        mass = pdg.estimate_mass(
+            state=form_factor.daughter_hadron,
+            alias_light=aliases.light,
+            alias_heavy=aliases.heavy,
+            a_fm=a_fm)
+        data.c2_src.set_mass(mass)
+        LOGGER.info("set daughter mass = %s", str(mass))
+    if use_pdg or (data.m_snk is None):
+        # snk <--> mother hadron
+        mass = pdg.estimate_mass(
+            state=form_factor.mother_hadron,
+            alias_light=form_factor.spectator,
+            alias_heavy=form_factor.mother,
+            a_fm=a_fm)
+        data.c2_snk.set_mass(mass)
+        LOGGER.info("set mother mass = %s", str(mass))
+        LOGGER.info("(m_src, m_snk)= (%s, %s)=(%s MeV, %s MeV)",
+                    data.m_src, data.m_snk,
+                    data.m_src * hbarc / a_fm, data.m_snk * hbarc/ a_fm)
+    return data
 
 
 def fold(arr):
