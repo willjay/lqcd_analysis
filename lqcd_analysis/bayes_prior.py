@@ -575,6 +575,53 @@ class FormFactorPriorD2Pi(BasePrior):
             prior['Vnn'][0,0] = gv.gvar(mean, err)
         super(FormFactorPriorD2Pi, self).__init__(mapping=prior, **kwargs)
 
+# NOTE for time being I am 'overriding' the heavy-light and light-light
+# tags relevant for D to pi for use in B to D. Eventually will want to
+# correct this.
+class FormFactorPriorH2D(BasePrior):
+    """
+    Class for building priors for B to D form factor analyses.
+    """
+    def __init__(self, nstates, amh, ds=None, a_fm=None, **kwargs):
+        prior = {}
+        amp = "0.1(0.4)"  # Generic amplitude prior.
+        hbarc = 0.197327  # GeV-fm.
+        mc = 0.99  # MSbar at 3 GeV.
+        mb = 4.2 # MSbar at mb.
+        sf = (amh*hbarc/(a_fm*mb))**0.7  # Scale factor (see pdg.py).
+        print('sf:', sf)
+        
+        # Decaying states
+        prior['light-light:dE'] = PhysicalSplittings('d')(nstates.n, a_fm)
+        prior['light-light:a'] = decay_amplitudes(nstates.n, amp, amp)
+        prior['heavy-light:dE'] = PhysicalSplittings('b')(nstates.m, a_fm,
+                                                           scale=sf)       
+        prior['heavy-light:a'] = decay_amplitudes(nstates.m, amp, amp)
+        # Oscillating states
+        if nstates.no:
+            prior['light-light:dEo'] = PhysicalSplittings('d_osc')(nstates.no, a_fm)
+            prior['light-light:ao'] = osc_amplitudes(nstates.no, amp)
+        if nstates.mo:
+            prior['heavy-light:dEo'] = PhysicalSplittings('b_osc')(nstates.mo, 
+                                                 a_fm, scale=sf)
+            prior['heavy-light:ao'] = osc_amplitudes(nstates.mo, amp)
+
+        # Matrix elements Vnn
+        for key, value in vmatrix(nstates).items():
+            if value.size:  # skip empty matrices
+                prior[key] = value
+
+        # Make informed guesses for ground states and the form factor Vnn[0,0].
+        # Estimate central values as well as possible, but keep wide priors.
+        if ds is not None:
+            for tag in ['light-light', 'heavy-light']:
+                mean = gv.mean(ds[tag].mass)  # Central value from "meff"
+                err = gv.sdev(prior[f"{tag}:dE"][0])
+                prior[f"{tag}:dE"][0] = gv.gvar(mean, err)
+            mean = gv.mean(ds.v_guess)  # Central value from ratio R
+            err = 0.5 * mean
+            prior['Vnn'][0,0] = gv.gvar(mean, err)
+        super(FormFactorPriorH2D, self).__init__(mapping=prior, **kwargs)
 
 class FormFactorPriorD2D(BasePrior):
     """
