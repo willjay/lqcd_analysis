@@ -409,6 +409,26 @@ def pion_osc_energy(n):
     return gv.gvar(500 + 400*(n-1), 800)
 
 
+def k_energy(n):
+    """ Get the energy of the nth excited kaon in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(500, 100)
+    if n == 2:
+        return gv.gvar(1460, 400)
+    return gv.gvar(1460 + 400*(n-2), 400)
+
+
+def k_osc_energy(n):
+    """ Get the energy of the nth excited opposite-parity kaon in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(800, 300)
+    return gv.gvar(800 + 400*(n-1), 800)
+
+
 def d_energy(n):
     """ Get the energy of the nth excited D meson in MeV. """
     if n == 0:
@@ -419,12 +439,31 @@ def d_energy(n):
 
 
 def d_osc_energy(n):
-    """ Get the energy of the nth excted opposite-parity D meson in MeV. """
+    """ Get the energy of the nth excited opposite-parity D meson in MeV. """
     if n == 0:
         return 0.
     if n == 1:
         return gv.gvar(2300, 700)
     return gv.gvar(2300 + 700*(n-1), 700)
+
+
+def ds_energy(n):
+    """ Get the energy of the nth excited Ds meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(1968, 200)
+    return gv.gvar(1968 + 400*(n-1), 400)
+
+
+def ds_osc_energy(n):
+    """ Get the energy of the nth excited opposite-parity D meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        # central value of Ds0^*(2317) from PDG, the lightest (presumed) J^P = 0^+ state
+        return gv.gvar(2317, 200)
+    return gv.gvar(2317 + 400*(n-1), 400)
 
 
 def b_energy(n):
@@ -438,7 +477,7 @@ def b_energy(n):
 
 
 def b_osc_energy(n):
-    """ Get the energy of the nth excted opposite-parity D meson in MeV. """
+    """ Get the energy of the nth excted opposite-parity B meson in MeV. """
     if n == 0:
         return 0.
     if n == 1:
@@ -447,6 +486,27 @@ def b_osc_energy(n):
         # B0, albeit with a large uncertainty on the precise value.
         return gv.gvar(5600, 1000)
     return gv.gvar(5600 + 1000*(n-1), 1000)
+
+def bs_energy(n):
+    """ Get the energy of the nth excited Bs meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(5366, 200)
+    return gv.gvar(5366 + 1000*(n-1), 1000)
+
+
+def bs_osc_energy(n):
+    """ Get the energy of the nth excted opposite-parity Bs meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        # Use a guess for the 1/2(0+) state, which has not yet been identified
+        # experimentally. I expect this state to be somewhat heavier than the
+        # Bs, albeit with a large uncertainty on the precise value.
+        return gv.gvar(5800, 1000)
+    return gv.gvar(5800 + 1000*(n-1), 1000)
+
 
 def boost(dE, p2):
     """
@@ -481,25 +541,42 @@ class PhysicalSplittings():
     """
     def __init__(self, state):
         state = str(state).lower()
-        if state not in ['pion', 'pion_osc', 'd', 'd_osc', 'b', 'b_osc']:
+        if state not in ['pion', 'pi', 'pion_osc', 'pi_osc',
+                         'kaon', 'k', 'kaon_osc', 'k_osc',
+                         'd', 'd_osc',
+                         'ds', 'ds_osc',
+                         'b', 'b_osc',
+                         'bs', 'bs_osc']:
             raise ValueError(f"Unrecognized state. Found state={state}")
         self.state = state
 
     def energy(self, n):
-        if self.state == 'pion':
+        if self.state in ('pion', 'pi'):
             return pion_energy(n)
-        elif self.state == 'pion_osc':
+        elif self.state in ('pion_osc', 'pi_osc'):
             return pion_osc_energy(n)
+        elif self.state in ('kaon', 'k'):
+            return k_energy(n)
+        elif self.state in ('kaon_osc', 'k_osc'):
+            return k_osc_energy(n)
         elif self.state == 'd':
             return d_energy(n)
         elif self.state == 'd_osc':
             return d_osc_energy(n)
+        elif self.state == 'ds':
+            return ds_energy(n)
+        elif self.state == 'ds_osc':
+            return ds_osc_energy(n)
         elif self.state == 'b':
             return b_energy(n)
         elif self.state == 'b_osc':
             return b_osc_energy(n)
+        elif self.state == 'bs':
+            return bs_energy(n)
+        elif self.state == 'bs_osc':
+            return bs_osc_energy(n)
         else:
-            raise ValueError("Unrecognized state")
+            raise ValueError("Unrecognized state", self.state)
 
     def __call__(self, n, a_fm=None, scale=1.0):
         """
