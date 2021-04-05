@@ -350,13 +350,6 @@ class ThreePoint(object):
             c3 = self.ydict[T]  # C(t, T)
             ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T-t))
             tmp = _combine(ratio)
-            # When dT is odd, average the results for T and T+dT.
-            # For the case dT=1, this average reduces to the cited equation.
-            # When dT is even, just use the result for T by itself
-            if bool(dT % 2):
-                c3 = self.ydict[T+dT]  # C(t, T+dT)
-                ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T+dT-t))
-                tmp = 0.5 * (tmp + _combine(ratio))
             c3bar[T] = tmp * np.exp(-m_src*t) * np.exp(-m_snk*(T-t))
         # pylint: enable=invalid-name,protected-access
         return c3bar
