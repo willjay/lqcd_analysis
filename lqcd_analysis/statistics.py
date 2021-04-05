@@ -6,6 +6,7 @@ import logging
 import numpy as np
 import scipy
 import gvar as gv
+from inspect import getfullargspec
 
 LOGGER = logging.getLogger(__name__)
 
@@ -80,7 +81,11 @@ def chi2(fit, augmented=False, trust_lsqfit=False):
             ))
         return fit.chi2
     # Standard chi2, without the term involving the prior
-    result = correlated_chi2(fit.fcn(fit.p), fit.y)
+    argspec = getfullargspec(fit.fcn)
+    if argspec.args == ['x', 'p']:
+        result = correlated_chi2(fit.fcn(fit.x, fit.p), fit.y)
+    else:
+        result = correlated_chi2(fit.fcn(fit.p), fit.y)
     if augmented:
         # Augmeted chi2, including the term with the prior
         result += correlated_chi2(fit.p, fit.prior)
@@ -136,15 +141,15 @@ def aic_model_probability(fit):
     * Nparams is the number of parameters in the model,
     * Ny is the total number data points, and
     * Ncut is the number of points cut / dropped by choosing tmin
-    The difference (Ny - Ngamma) > 0 is simply "Ndata", the total number of 
-    data points included in the fit. For a fixed model and fixed raw dataset, 
+    The difference (Ny - Ngamma) > 0 is simply "Ndata", the total number of
+    data points included in the fit. For a fixed model and fixed raw dataset,
     Nparams and Ny are constant and cancel in the normalized probabilites used
-    in model averaging. So, for fixed model and fixed raw dataset, 
+    in model averaging. So, for fixed model and fixed raw dataset,
     IC --> chi^2 + 2 Ncut.
     """
     ndata = count_ndata(fit.y)
     ic = aic(fit) - 2.0 * ndata
-    # Recall the basic log-likelihood function in least-squares fitting is 
+    # Recall the basic log-likelihood function in least-squares fitting is
     # -1/2 * chi2^2, with a factor of -1/2. So we must multiply the information
     # criterion by -1/2 in order to get the full log-likelihood.
     log_likelihood = -0.5 * ic
@@ -166,7 +171,7 @@ def model_avg(gv_list, pr_list):
     var_avg = np.sum(gv.var(gv_list) * prob)
     # Second, the "systematic error" due to model choice
     # <a>^2 P(M|D) - (<a> P(M|D))^2
-    var_avg += np.sum(gv.mean(gv_list)**2 * prob)  
+    var_avg += np.sum(gv.mean(gv_list)**2 * prob)
     var_avg -= (np.sum(gv.mean(gv_list) * prob))**2
     return gv.gvar(mean_avg, np.sqrt(var_avg))
 
