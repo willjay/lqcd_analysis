@@ -521,3 +521,25 @@ class SerializableFormFactor(SerializableNonlinearFit):
         for key, key_alt in key_map.items():
             payload[key] = sanitize(self.p[key_alt][0])
         return payload
+
+class SerializableRatioAnalysis(SerializableNonlinearFit):
+    def __init__(self, fit, nstates, times, m_src, m_snk):
+        super(SerializableRatioAnalysis, self).__init__(fit)
+        self.nstates = nstates
+        self.times = times
+        self.m_src = m_src
+        self.m_snk = m_snk
+
+    def serialize(self, rawtext=True):
+        """ Serialize the fit result for saving to a database. """
+        payload = super().serialize(rawtext)
+        sanitize = str if rawtext else lambda x: x
+        payload['tmin_src'] = self.times.tmin_src
+        payload['tmin_snk'] = self.times.tmin_snk
+        payload['t_step'] = self.times.t_step
+        payload['n_decay_src'] = self.nstates.n
+        payload['n_decay_snk'] = self.nstates.m
+        payload['r'] = sanitize(self.p['plateau'])
+        payload['m_src'] = sanitize(self.m_src)
+        payload['m_snk'] = sanitize(self.m_snk)
+        return payload
