@@ -45,7 +45,7 @@ def get_sign(data):
     return signs[0]
 
 
-def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3):
+def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3, skip_fastfit=False):
     """
     Wrangles raw data into a useful form ahead of passign to a fitter.
     Args:
@@ -66,7 +66,7 @@ def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise
         data_binned,
         sign=sign,
         noise_threshy=noise_threshy,
-        skip_fastfit=False)
+        skip_fastfit=skip_fastfit)
     return data
 
 def ensure_masses_exist(data, form_factor, a_fm, use_pdg=False):
