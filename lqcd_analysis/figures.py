@@ -336,7 +336,7 @@ def overlap(dataframe, ax, x_offset=0, alpha_v=None, a_fm=None, mass_dimension=2
     ax = plt.errorbar(ax, x, y, **kwargs)
 
     # Plot envelope of expected discretization errors 1 +/- alpha (ap)^2
-    y_rest = y[0]
+    y_rest = gv.mean(y[0])
     p2 = dataframe['p2'].values
     if alpha_v is not None:
         x = np.linspace(0, max(x))
