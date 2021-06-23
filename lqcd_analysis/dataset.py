@@ -16,6 +16,7 @@ from . import visualize as plt
 from . import utils
 from . import staggered
 from . import pdg
+from . import resample
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def get_sign(data):
     return signs[0]
 
 
-def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3, skip_fastfit=False):
+def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3, skip_fastfit=False, fold=True):
     """
     Wrangles raw data into a useful form ahead of passign to a fitter.
     Args:
@@ -59,7 +60,7 @@ def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise
     """
     data_binned = build_dataset(
         data_raw,
-        do_fold=True,
+        do_fold=fold,
         binsize=binsize,
         shrink_choice=shrink_choice)
     data = FormFactorDataset(
@@ -329,7 +330,7 @@ def normalization(ns, momentum, current, energy_src, m_snk):
     """
     p_vec = [2.0 * np.pi * float(pj) / ns for pj in momentum.lstrip("p")]
     momentum_factor = {
-        'V1-S': p_vec[0], 'V2-S': p_vec[1], 'V3-S': p_vec[2],
+        'Vi-S': p_vec[0], 'V1-S': p_vec[0], 'V2-S': p_vec[1], 'V3-S': p_vec[2],
         'T14-V4': p_vec[0], 'T24-V4': p_vec[1], 'T34-V4': p_vec[2],
     }
     norm = 1.0
@@ -684,6 +685,78 @@ class FormFactorDataset(object):
         #ax.legend(loc=0)
         return ax
 
+class FormFactorRawData:
+    """
+    Wrapper for raw data associated with form factor analyses, providing simple and consistent
+    access to the "full dataset" as well as bootstrap sampling thereof.
+    Args:
+        data_raw: dict of arrays, the raw correlator data
+        sign: int, sign of the form factor (i.e., in order to make the ratio R positive)
+        binsize: int, the bin/block size. Default is 10
+        shrink_choice: str, the type of shrinkage to use. Default is 'nonlinear'
+        noise_threshy: float, the cut for noisy data
+    """
+    def __init__(self, data_raw, sign, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3):
+        self.data_raw = data_raw
+        self.sign = sign
+        self.binsize = binsize
+        self.shrink_choice = shrink_choice
+        self.noise_threshy = noise_threshy
+        self._ds = None
+        self._cov = None
+        self._nconfigs = None
+
+    @property
+    def ds(self):
+        """The FormFactorDataset of the full dataset."""
+        if self._ds is None:
+            self._ds = wrangle_data(
+                self.data_raw,
+                sign=self.sign,
+                skip_fastfit=True,
+                binsize=self.binsize,
+                shrink_choice=self.shrink_choice,
+                noise_threshy=self.noise_threshy)
+        return self._ds
+
+    @property
+    def cov(self):
+        """The frozen covariance matrix of the full dataset."""
+        if self._cov is None:
+            self._cov = gv.evalcov(self.ds)
+        return self._cov
+
+    @property
+    def nconfigs(self):
+        """The number of configurations present."""
+        # if self.is_dict:
+        #     nconfigs = [val.shape[0] for val in self.data.values()]
+        #     return np.unique(nconfigs).item()
+        # return self.data.shape[0]
+
+        if self._nconfigs is None:
+            nconfigs = [val.shape[0] for val in self.data_raw.values()]
+            nconfigs = np.unique(nconfigs).item()
+            self._nconfigs = nconfigs
+        return self._nconfigs
+
+    def bootstrap(self, seed, **bootstrap_kwargs):
+        """
+        A generator for bootstrap samples of the form factor data.
+        Args:
+            seed: int, the seed for the RNG
+            bootstrap_kwargs: kwargs for resample.Bootstrap, usually 'nresample' or 'nensemble'
+        Returns:
+            generator which yields tuples (checksum, FormFactorDataset)
+        """
+        for checksum, draw in resample.Bootstrap(self.data_raw, seed=seed, **bootstrap_kwargs):
+            mean = build_dataset(draw, binsize=1, noerror=True)
+            data = FormFactorDataset(
+                gv.gvar(mean, self.cov),
+                sign=self.sign,
+                noise_threshy=self.noise_threshy,
+                skip_fastfit=True)
+            yield checksum, data
 
 if __name__ == '__main__':
     main()
