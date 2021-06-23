@@ -18,9 +18,8 @@ from . import serialize
 
 LOGGER = logging.getLogger(__name__)
 
-Nstates = collections.namedtuple(
-    'NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0)
-)
+Nstates = collections.namedtuple('NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0))
+
 def _abs(val):
     return val * np.sign(val)
 
@@ -580,7 +579,7 @@ def ratio_model(x, p):
 
     return y
 
-class RatioAnalysis(object):
+class RatioAnalysis:
     """
     A fitter class for direct analysis of "Rbar", the ratio of 3pt and 2pt functions which plateaus
     to give transition matrix elements / form factors.
