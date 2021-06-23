@@ -446,21 +446,21 @@ class FormFactorAnalysis(object):
         fitter_kwargs['prior'] = prior
 
         # Handle models
-        models = []
+        models_list = []
         for tag in self.ds:
             model = get_model(self.ds, tag, nstates, self.pedestal, constrain)
             if model is not None:
-                models.append(model)
+                models_list.append(model)
 
         # Abort if too few models found
-        if len(models) != len(set(self.ds.keys())):
+        if len(models_list) != len(set(self.ds.keys())):
             self.fitter = None
             fit = None
             LOGGER.warning('Insufficient models found. Skipping joint fit.')
             return
 
         # Run fit
-        self.fitter = cf.CorrFitter(models=models)
+        self.fitter = cf.CorrFitter(models=models_list)
         if chain:
             _lsqfit = self.fitter.chained_lsqfit
         else:
