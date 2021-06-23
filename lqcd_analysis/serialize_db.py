@@ -222,9 +222,13 @@ class FormFactor(DictLike):
 
     def identify(self, table_meson_names):
         """
-        Identify the mother and daughter hadrons and the transition name using the table, setting
-        attributes 'mother_hadron', 'daughter_hadron', and 'transition_name'
+        Identify the mother and daughter hadrons and the transition name using 
+        the table, setting attributes 'mother_hadron', 'daughter_hadron', 
+        and 'transition_name'
+        Args: 
+            table_meson_names: MesonNames object
         """
+        print("table_meson_names:", table_meson_names)
         self.mother_hadron = table_meson_names.identify(self.mother, self.spectator)
         self.daughter_hadron = table_meson_names.identify(self.daughter, self.spectator)
         self.transition_name = f"{self.mother_hadron} to {self.daughter_hadron}"
