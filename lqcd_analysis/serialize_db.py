@@ -11,6 +11,7 @@ import pathlib
 import numpy as np
 import aiosql
 import sqlalchemy
+import logging
 
 sqlite3.register_adapter(np.int64, int)  # Kludge for obscure Python3 issue with integers in dbs
 
@@ -63,7 +64,7 @@ def connect(database, **kwargs):
     return engine
 
 
-def build_upsert_query(engine, table_name):
+def build_upsert_query(engine, table_name, return_columns=False):
     """
     Builds a generic parameterized "upsert query" for updating non-unique columns.
     Args:
@@ -117,6 +118,7 @@ def build_upsert_query(engine, table_name):
     complement = get_complement(columns, uniques)
     # Finally build the query itself
     payload = {
+        'table_name': table_name,
         'columns': join_columns(columns),
         'values': join_params(columns),
         'uniques': join_columns(uniques),
@@ -124,9 +126,12 @@ def build_upsert_query(engine, table_name):
         'set_values': join_params(complement),
     }
     query_template = (
-        "INSERT INTO result_form_factor ({columns}) "
+        "INSERT INTO {table_name} ({columns}) "
         "VALUES ({values}) ON CONFLICT ({uniques}) "
         "DO UPDATE SET ({set_columns})=({set_values})")
+
+    if return_columns:
+        return sqlalchemy.text(query_template.format(**payload)), columns
     return sqlalchemy.text(query_template.format(**payload))
 
 
@@ -156,6 +161,15 @@ class DictLike:
         """ Return the value for key if key is in the dictionary, else default. """
         return self.__dict__.get(key, default)
 
+    def __setitem__(self, key, value):
+        self.__dict__.__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        """ Adds key:value pairs to the dictionary. """
+        self.__dict__.update(*args, **kwargs)
+
+    def __getitem__(self, key):
+        return self.__dict__.get(key)
 
 class Ensemble(DictLike):
     """
@@ -274,7 +288,7 @@ class ResultFormFactor(DictLike):
     Args:
         form_factor_fitter: analysis.FormFactorAnalysis
     """
-    def __init__(self, form_factor_fitter):
+    def __init__(self, form_factor_fitter, **serialize_kwargs):
         # map keys onto standardized names
         attr_map = {
             'tmin_ll': 'tmin_src',
@@ -292,7 +306,7 @@ class ResultFormFactor(DictLike):
         sanitize = {'r': str,}
         identity = lambda x: x
         # Grab attributes from serialized version of the fitter
-        for key, value in form_factor_fitter.serialize().items():
+        for key, value in form_factor_fitter.serialize(**serialize_kwargs).items():
             name = attr_map.get(key, key)
             # Skip keys mapped to None
             if name:
@@ -329,3 +343,43 @@ class ResultFormFactor(DictLike):
         result['form_factor_id'] = form_factor.fetch_id(engine)
         with connection_scope(engine) as conn:
             queries.write_result_form_factor(conn, **result)
+
+class ResultRatioAnalysis(DictLike):
+    """
+    Wrapper class for managing results from fits to extract form factors from direct analysis of
+    "Rbar", the ratio of 3pt and 2pt functions which plateaus to the transition matrix element or
+    form factor.
+    Args:
+        fit: SerializableRatioAnalysis
+    """
+    def __init__(self, fit):
+        for key, value in fit.serialize().items():
+            setattr(self, key, value)
+
+    def write(self, database, form_factor_id):
+        engine = connect(database)
+        queries = aiosql.from_path(abspath("sql/"), "sqlite3")
+
+        result = self.asdict()
+        result['form_factor_id'] = form_factor_id
+        with connection_scope(engine) as conn:
+            queries.write_result_ratio(conn, **result)
+
+
+def initialize_logger(logger, logfile=None, level=logging.INFO):
+    """
+    Initializes the logger.
+    Args:
+        logfile: str, full path to the logfile
+    """
+    if logfile:
+        handler = logging.FileHandler(logfile)
+    else:
+        handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+    handler.setFormatter(formatter)
+    handler.setLevel(level)
+    logger.addHandler(handler)
+    logger.setLevel(level)
