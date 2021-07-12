@@ -109,7 +109,7 @@ def test_fcns(am0):
     am1 = m_rest(am0)
     print('m_rest:', am1)
     print('naik_eps:', naik_epsilon(am0))
-    print('chfac:' chfac(am0))
+    print('chfac:', chfac(am0))
 
 if __name__ == "__main__":
     try:
