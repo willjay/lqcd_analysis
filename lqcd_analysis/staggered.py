@@ -85,7 +85,7 @@ def ch(am1):
     Returns:
         float, cosh(am1)*(1-(1/2)N sinh^2(am1))
     """
-    return np.cosh(am1)*(1 - (1./2)*naik_n(m1)*np.sinh(am1)**2)
+    return np.cosh(am1)*(1 - (1./2)*naik_n(am1)*np.sinh(am1)**2)
 
 def chfac(am0):
     """
@@ -109,6 +109,7 @@ def test_fcns(am0):
     am1 = m_rest(am0)
     print('m_rest:', am1)
     print('naik_eps:', naik_epsilon(am0))
+    print('chfac:' chfac(am0))
 
 if __name__ == "__main__":
     try:
