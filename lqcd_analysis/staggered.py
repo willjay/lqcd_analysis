@@ -20,7 +20,7 @@ def sh(am1):
     Returns:
         am0: float, the quark bare mass in lattice units
     """
-    return np.sinh(am1*(1 - (1./6.) * naik_n(am1) * np.sinh(am1)**2))
+    return np.sinh(am1)*(1 - (1./6.) * naik_n(am1) * np.sinh(am1)**2)
 
 
 def naik_n(am1):
@@ -45,7 +45,7 @@ def naik_n(am1):
         float, the value of the Naik coefficient N = (1 + epsilon)
     """
     x = 2.0*am1 / np.sinh(2.0*am1)
-    return (4.0 - 2.0*np.sqrt(1.0 + 3.0*x)) / np.sinh(2.0*am1)**2
+    return (4.0 - 2.0*np.sqrt(1.0 + 3.0*x)) / np.sinh(am1)**2
 
 
 def m_rest(m_bare):
