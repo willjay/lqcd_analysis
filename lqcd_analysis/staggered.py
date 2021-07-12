@@ -1,8 +1,11 @@
 """
 Formulae related to technical details of staggered fermions.
 """
+import sys
+
 import numpy as np
 import scipy
+from scipy import optimize
 
 
 def sh(am1):
@@ -60,4 +63,57 @@ def m_rest(m_bare):
     def func(am1):
         return sh(am1) - m_bare
     return scipy.optimize.brentq(func, 0.75*m_bare, 1.25*m_bare)
-        
+
+def naik_epsilon(am0):
+    """
+    Naik epsilon term from the bare input mass.
+    Args:
+        am0: float, the bare input mass
+    Returns:
+        float, the Naik epsilon term appearing in the HISQ action.
+    """
+    am1 = m_rest(am0)
+    return naik_n(am1) -1
+
+def ch(am1):
+    """
+    Computes Eq. B4 of 1712.09262, used to remove tree-level mass-dependent
+    discretization effects of matrix elements involving heavy quarks with
+    the HISQ action.
+    Args:
+        am1: float, rest mass
+    Returns:
+        float, cosh(am1)*(1-(1/2)N sinh^2(am1))
+    """
+    return np.cosh(am1)*(1 - (1./2)*naik_n(m1)*np.sinh(am1)**2)
+
+def chfac(am0):
+    """
+    Convenience function implements Eqs. B12, B13 of 1712.09262.
+    Args:
+        am0: float, bare input mass
+    Returns:
+        float: ch(am1(am0)^(1/2)
+    """
+    return np.sqrt(ch(m_rest(am0)))
+
+def test_fcns(am0):
+    """
+    Print results from various functions defined here.
+    Args:
+        am0: float, bare input mass
+    Returns:
+        None
+    """
+    print('am0:', am0)
+    am1 = m_rest(am0)
+    print('m_rest:', am1)
+    print('naik_eps:', naik_epsilon(am0))
+
+if __name__ == "__main__":
+    try:
+        am0 = float(sys.argv[1])
+    except (IndexError, ValueError):
+        print("Enter 'am0' as an argument.")
+        sys.exit(1)
+    test_fcns(am0)
