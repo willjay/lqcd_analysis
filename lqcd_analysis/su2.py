@@ -95,9 +95,11 @@ class HardSU2Model(BaseSU2Model):
         if self.process in ('B to K', 'D to K'):
             return 3. * g2 * result
         if self.process in ('Bs to K', 'Ds to K'):
-            raise NotImplementedError(
-                f"Logs not yet implemented for {self.process}."
-            )
+            # TODO: Conjecture! Verify to be sure this is correct!
+            return result
+            # raise NotImplementedError(
+            #     f"Logs not yet implemented for {self.process}."
+            # )
 
 
 class SU2Model(BaseSU2Model):
