@@ -23,6 +23,9 @@ def get_value(dict_list, key):
         value = adict.get(key)
         if value is not None:
             return value
+        value = adict.get(f"log({key})")
+        if value is not None:
+            return np.exp(value)
     raise KeyError(f"Key '{key}' not found within dict_list.")
 
 
