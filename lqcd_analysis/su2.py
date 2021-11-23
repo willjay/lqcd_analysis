@@ -10,9 +10,10 @@ class BaseSU2Model(chipt.ChiralModel):
     Base model for SU(2) EFT description of form factors.
     """
 
-    def __init__(self, form_factor_name, process, lam, continuum=False):
+    def __init__(self, form_factor_name, process, lam, continuum=False, continuum_logs=False):
         super().__init__(form_factor_name, process, lam, continuum)
         self.model_type = 'BaseSU2Model'
+        self.continuum_logs = continuum_logs
 
     def model(self, *args):
         """
@@ -34,21 +35,70 @@ class BaseSU2Model(chipt.ChiralModel):
         x, params = args if len(args) == 2 else ({}, args[0])
         dict_list = [x, params]
         # Extract values from inputs
-        c_0 = chipt.get_value(dict_list, 'c0')
+        leading = chipt.get_value(dict_list, 'leading')
+        # c_0 = chipt.get_value(dict_list, 'c0')
+        # phi = chipt.get_value(dict_list, 'phi')
         gpi = chipt.get_value(dict_list, 'g')
         fpi = chipt.get_value(dict_list, 'fpi')
         energy = chipt.get_value(dict_list, 'E')
         delta = chipt.get_value(dict_list, 'delta_pole')
         # Get the chiral logarithms
-        pions = chipt.StaggeredPions(x, params, continuum=self.continuum)
+        pions = chipt.StaggeredPions(x, params, continuum=(self.continuum or self.continuum_logs))
         logs = self.delta_logs(fpi, gpi, pions, energy)
-        sigma = self.self_energy(fpi, gpi, pions, energy)
+        # sigma = self.self_energy(fpi, gpi, pions, energy)
+        sigma = 0
         # Get the analytic terms
         chi = chipt.ChiralExpansionParameters(x, params)
         analytic = chipt.analytic_terms(chi, params, self.continuum)
         # Leading-order x (corrections )
-        return chipt.form_factor_tree_level(gpi, fpi, energy, delta, sigma)\
-            * (c_0 * (1 + logs) + analytic)
+        name = self.form_factor_name
+        # tree = chipt.form_factor_tree_level(phi, gpi, fpi, energy, delta, sigma, name)
+        tree = chipt.form_factor_tree_level(leading, energy, delta, sigma, name)
+        # return tree * ((1 + c_0*logs) + analytic)
+        return tree * (1 + logs + analytic)
+
+    def breakdown(self, *args):
+        # Unpackage x, params
+        if len(args) not in (1, 2):
+            raise TypeError(
+                "Please specify either (x, params) or params as arguments."
+            )
+        x, params = args if len(args) == 2 else ({}, args[0])
+        dict_list = [x, params]
+        # Extract values from inputs
+        leading = chipt.get_value(dict_list, 'leading')
+        # c_0 = chipt.get_value(dict_list, 'c0')
+        # phi = chipt.get_value(dict_list, 'phi')
+        gpi = chipt.get_value(dict_list, 'g')
+        fpi = chipt.get_value(dict_list, 'fpi')
+        energy = chipt.get_value(dict_list, 'E')
+        delta = chipt.get_value(dict_list, 'delta_pole')
+        # Get the chiral logarithms
+        pions = chipt.StaggeredPions(x, params, continuum=(self.continuum or self.continuum_logs))
+        logs = self.delta_logs(fpi, gpi, pions, energy)
+        # sigma = self.self_energy(fpi, gpi, pions, energy)
+        sigma = 0
+        # Get the analytic terms
+        chi = chipt.ChiralExpansionParameters(x, params)
+        analytic = chipt.analytic_terms(chi, params, self.continuum)
+        analytic_nlo = chipt.analytic_terms(chi, params, self.continuum, order='NLO')
+        analytic_nnlo = chipt.analytic_terms(chi, params, self.continuum, order='NNLO+')
+        # Get the breakdown
+        name = self.form_factor_name
+        # tree = chipt.form_factor_tree_level(phi, gpi, fpi, energy, delta, sigma, name)
+        tree = chipt.form_factor_tree_level(leading, energy, delta, sigma, name)
+        return {
+            'tree': tree,
+            # 'log_corrections': c_0 * tree * logs,
+            'NLO_log_corrections': tree * logs,
+            'NLO_analytic_corrections': tree * analytic_nlo,
+            'full_analtyic_corrections': tree * analytic,
+            'LO': tree,
+            # 'NLO': tree * (c_0 * logs + analytic_nlo),
+            'NLO': tree * (logs + analytic_nlo),
+            'NNLO': tree * analytic_nnlo,
+            'self_energy': self.self_energy(fpi, gpi, pions, energy),
+        }
 
 
 class HardSU2Model(BaseSU2Model):
@@ -56,8 +106,8 @@ class HardSU2Model(BaseSU2Model):
     Model for form factor data in hard K/pi limit of SU(2) EFT.
     """
 
-    def __init__(self, form_factor_name, process, lam, continuum=False):
-        super().__init__(form_factor_name, process, lam, continuum)
+    def __init__(self, form_factor_name, process, lam, continuum=False, continuum_logs=False):
+        super().__init__(form_factor_name, process, lam, continuum, continuum_logs)
         self.model_type = "HardSU2Model"
 
     def self_energy(self, *args, **kwargs):
@@ -107,8 +157,8 @@ class SU2Model(BaseSU2Model):
     Model for form factors in general SU(2) EFT, away from the hard K/pi limit.
     """
 
-    def __init__(self, form_factor_name, process, lam, continuum=False):
-        super().__init__(form_factor_name, process, lam, continuum)
+    def __init__(self, form_factor_name, process, lam, continuum=False, continuum_logs=False):
+        super().__init__(form_factor_name, process, lam, continuum, continuum_logs)
         self.model_type = "SU2Model"
 
     def delta_logs(self, fpi, gpi, pions, energy):
@@ -230,7 +280,8 @@ class SU2Model(BaseSU2Model):
         # Axial pion and eta terms
         result += combo(pions.m_a) - combo(pions.meta_a)
         # Normalization
-        result *= 3 * g2 * energy / (4. * np.pi * fpi)**2.
+        # result *= 3 * g2 * energy / (4. * np.pi * fpi)**2.
+        result /= (4. * np.pi * fpi)**2
         return result
 
     def _log_b2k_perp(self, fpi, gpi, pions):
@@ -238,7 +289,7 @@ class SU2Model(BaseSU2Model):
         Computes the chiral logarithm associated with the form factor f_perp
         for B to K semileptonic decays. See Eq. (A34) in J. Bailey et al
         "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
-        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.6235]
+        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.06235]
         """
         g2 = gpi**2.
 
@@ -257,6 +308,12 @@ class SU2Model(BaseSU2Model):
         return result
 
     def _self_energy_b2pi(self, fpi, gpi, pions, energy):
+        """
+        Computes the self-energy contribution for B to pi semileptonic decays.
+        See Eq. (A31) in J. Bailey et al
+        "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
+        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.06235]
+        """
         g2 = gpi**2.
 
         def combo(mass):
@@ -266,9 +323,9 @@ class SU2Model(BaseSU2Model):
         # Scalar pion terms
         result -= 0.5 * chipt.chiral_log_j1sub(pions.m_i, energy, self.lam)
         # Vector pion and eta terms
-        result -= 2. * (combo(pions.m_v) - combo(pions.meta_v))
+        result -= combo(pions.m_v) - combo(pions.meta_v)
         # Axial pion and eta terms
-        result -= 2. * (combo(pions.m_a) - combo(pions.meta_a))
+        result += combo(pions.m_a) - combo(pions.meta_a)
         # Normalization
         result *= -3. * g2 * energy / (4. * np.pi * fpi)**2.
         return result
@@ -278,6 +335,6 @@ class SU2Model(BaseSU2Model):
         Computes the self-energy contribution for B to K semileptonic decays,
         which happens to vanish in SU(2) EFT. See Eq. (A33) in J. Bailey et al
         "B -> Kl+l- Decay Form Factors from Three-Flavor Lattice QCD"
-        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.6235]
+        Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.06235]
         """
         return 0.
