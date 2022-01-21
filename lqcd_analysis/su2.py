@@ -36,25 +36,20 @@ class BaseSU2Model(chipt.ChiralModel):
         dict_list = [x, params]
         # Extract values from inputs
         leading = chipt.get_value(dict_list, 'leading')
-        # c_0 = chipt.get_value(dict_list, 'c0')
-        # phi = chipt.get_value(dict_list, 'phi')
         gpi = chipt.get_value(dict_list, 'g')
         fpi = chipt.get_value(dict_list, 'fpi')
         energy = chipt.get_value(dict_list, 'E')
         delta = chipt.get_value(dict_list, 'delta_pole')
         # Get the chiral logarithms
-        pions = chipt.StaggeredPions(x, params, continuum=(self.continuum or self.continuum_logs))
+        pions = chipt.StaggeredPions(x, params, continuum=(self.continuum or self.continuum_logs))        
         logs = self.delta_logs(fpi, gpi, pions, energy)
-        # sigma = self.self_energy(fpi, gpi, pions, energy)
-        sigma = 0
+        sigma = self.self_energy(fpi, gpi, pions, energy)
         # Get the analytic terms
         chi = chipt.ChiralExpansionParameters(x, params)
         analytic = chipt.analytic_terms(chi, params, self.continuum)
         # Leading-order x (corrections )
         name = self.form_factor_name
-        # tree = chipt.form_factor_tree_level(phi, gpi, fpi, energy, delta, sigma, name)
         tree = chipt.form_factor_tree_level(leading, energy, delta, sigma, name)
-        # return tree * ((1 + c_0*logs) + analytic)
         return tree * (1 + logs + analytic)
 
     def breakdown(self, *args):
@@ -67,8 +62,6 @@ class BaseSU2Model(chipt.ChiralModel):
         dict_list = [x, params]
         # Extract values from inputs
         leading = chipt.get_value(dict_list, 'leading')
-        # c_0 = chipt.get_value(dict_list, 'c0')
-        # phi = chipt.get_value(dict_list, 'phi')
         gpi = chipt.get_value(dict_list, 'g')
         fpi = chipt.get_value(dict_list, 'fpi')
         energy = chipt.get_value(dict_list, 'E')
@@ -76,8 +69,7 @@ class BaseSU2Model(chipt.ChiralModel):
         # Get the chiral logarithms
         pions = chipt.StaggeredPions(x, params, continuum=(self.continuum or self.continuum_logs))
         logs = self.delta_logs(fpi, gpi, pions, energy)
-        # sigma = self.self_energy(fpi, gpi, pions, energy)
-        sigma = 0
+        sigma = self.self_energy(fpi, gpi, pions, energy)
         # Get the analytic terms
         chi = chipt.ChiralExpansionParameters(x, params)
         analytic = chipt.analytic_terms(chi, params, self.continuum)
@@ -145,12 +137,12 @@ class HardSU2Model(BaseSU2Model):
         if self.process in ('B to K', 'D to K'):
             return 3. * g2 * result
         if self.process in ('Bs to K', 'Ds to K'):
-            # TODO: Conjecture! Verify to be sure this is correct!
+            # Alexei Bazavov et al (FNAL-MILC)
+            # Phys.Rev.D 100 (2019) 3, 034501
+            # https://arxiv.org/pdf/1901.02561.pdf
+            # See Eq (A3a)
             return result
-            # raise NotImplementedError(
-            #     f"Logs not yet implemented for {self.process}."
-            # )
-
+            
 
 class SU2Model(BaseSU2Model):
     """
@@ -338,3 +330,47 @@ class SU2Model(BaseSU2Model):
         Phys.Rev. D93 (2016) no.2, 025026 [arXiv:1509.06235]
         """
         return 0.
+
+
+class HardSU2ModelF0(BaseSU2Model):
+
+    def __init__(self, process, lam, continuum=False, continuum_logs=False):
+    
+        super().__init__("f_0", process, lam, continuum, continuum_logs)
+        self.model_type = "SU2ModelF0"
+
+        self.f_parallel = HardSU2Model('f_parallel', process, lam, continuum, continuum_logs)
+        self.f_perp = HardSU2Model('f_perp', process, lam, continuum, continuum_logs)
+    
+
+    def model(self, *args):
+        """
+        Compute the model functions
+        Args:
+            Accepts either a single positional argument 'params' or two
+            positional arguments ('x', 'params'). This non-standard interface
+            is designed to work well with lsqfit.nonlinear_fit, which accepts
+            functions with either interface, depending on whether or not the
+            "independent data" have errors.
+        Returns:
+            array with form factor data
+        """
+        # Unpackage x, params
+        if len(args) not in (1, 2):
+            raise TypeError("Please specify either (x, params) or params as arguments.")
+        x, params = args if len(args) == 2 else ({}, args[0])
+        dict_list = [x, params]
+
+        # Extract values from inputs
+        energy = chipt.get_value(dict_list, 'E')  # energy of recoiling daughter hadron
+        mass_heavy = chipt.get_value(dict_list, 'M_mother')  # mass of mother hadron
+        mass_light = chipt.get_value(dict_list, 'M_daughter')  # mass of daughter hadron 
+
+        # Construct f0 as a linear combination of f_parallel and f_perp
+        fperp = self.f_perp.model(*args)
+        fparallel = self.f_parallel.model(*args)
+        result = ((mass_heavy - energy) * fparallel + (energy**2 - mass_light**2) * fperp)
+        result *= np.sqrt(2*mass_heavy) / (mass_heavy**2 - mass_light**2) 
+        return result
+
+        
