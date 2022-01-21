@@ -718,9 +718,4 @@ def run_fits(process, channel, engine):
                 result['f'] = y_ctm
                 results.append(result)
 
-
-        
-
-
     return data, pd.DataFrame(results)
-
