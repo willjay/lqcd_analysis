@@ -1,5 +1,5 @@
 import re
-import itertools
+from collections import namedtuple
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
@@ -12,9 +12,12 @@ from . import visualize as plt
 from . import serialize
 from . import chipt
 from . import su2
-from . import su3
+from . import staggered
 
 from allhisq_analysis import data_tables
+
+
+FitKey = namedtuple('FitKey', ['a_fm', 'description', 'm_light', 'm_strange', 'm_heavy'])
 
 
 def read_masses(engine):
@@ -56,19 +59,19 @@ def read_boot_data(engine, ens_id, spin_taste_current, process):
     def get_mass_combinations(process):
         if process in ('Ds to K', 'Ds2K'):
             return {
-                'alias_heavy': "('0.9 m_charm', '1.0 m_charm', '1.1 m_charm')",
+                'alias_heavy': "('0.9 m_charm', '1.0 m_charm', '1.1 m_charm', '1.4 m_charm', '1.5 m_charm', '2.0 m_charm')",
                 'alias_light': "('1.0 m_light', '0.1 m_strange', '0.2 m_strange')",
                 'alias_spectator': "('1.0 m_strange')",
             }
         if process in ('D to K', 'D2K'):
             return {
-                'alias_heavy': "('0.9 m_charm', '1.0 m_charm', '1.1 m_charm')",
+                'alias_heavy': "('0.9 m_charm', '1.0 m_charm', '1.1 m_charm', '1.4 m_charm', '1.5 m_charm', '2.0 m_charm')",
                 'alias_light': "('1.0 m_strange')",
                 'alias_spectator': "('1.0 m_light', '0.1 m_strange', '0.2 m_strange')",
             }
         if process in ('D to pi', 'D2pi'):
             return {
-                'alias_heavy': "('0.9 m_charm', '1.0 m_charm', '1.1 m_charm')",
+                'alias_heavy': "('0.9 m_charm', '1.0 m_charm', '1.1 m_charm', '1.4 m_charm', '1.5 m_charm', '2.0 m_charm')",
                 'alias_light': "('1.0 m_light', '0.1 m_strange', '0.2 m_strange')",
                 'alias_spectator': "('1.0 m_light', '0.1 m_strange', '0.2 m_strange')",
             }
@@ -128,7 +131,7 @@ def correlate_boot_data(dataframe):
                 'form_factor_id': form_factor_id,
                 'alias_light': alias_light,
                 'alias_heavy': alias_heavy,
-                'm_light': subdf['m_light'].unique().item(),
+                # 'm_light': subdf['m_light'].unique().item(),
                 'm_heavy': subdf['m_heavy'].unique().item(),
                 'm_spectator': subdf['m_spectator'].unique().item(),
                 'dm_heavy': subdf['dm_heavy'].unique().item(),
@@ -165,8 +168,8 @@ def correlate_boot_data(dataframe):
 def read_all(current, process, engine):
 
     dfs = []
-    for ens_id in [25, 15, 28, 13, 12]:
-    # for ens_id in [25, 15, 28, 13, 12, 36]:
+    # for ens_id in [25, 15, 28, 13, 12]:
+    for ens_id in [25, 15, 28, 13, 12, 36, 35]:
     # for ens_id in [11, 25, 15, 28, 13, 12]:
         df = read_boot_data(engine, ens_id, current, process)
         print(f"Read {len(df)} lines for ens_id={ens_id}")
@@ -178,28 +181,25 @@ def read_all(current, process, engine):
     data = pd.merge(data, lattice_spacing, on='ens_id')
 
     # Read masses from 2pt fits
-    masses = read_masses(engine)
-    if process in ['Ds to K', 'Ds2K', 'D to pi', 'D2pi']:
-        # For Ds to K, the "heavy" quark in the 2pt function corresponds to the
-        # strange spectator. The "light" quark corresponds to the daughter quark
-        # of the decay, which we've unfortunately also named "light" (thinking
-        # "heavy-to-light" decays).
-        # For D to pi, the "heavy" and "light" quark in the daughter meson are
-        # degenerate. Therefore, we simply identify the "heavy" one with the spectator.
-        masses.rename(columns={'mass': 'M_daughter', 'm_heavy':'m_spectator'}, inplace=True)
+    hadron_masses = pd.read_sql("SELECT * FROM hadron_masses;", engine)
+    for key in ['pion', 'kaon', 'd', 'ds']:
+        hadron_masses[key] = hadron_masses[key].apply(gv.gvar)
+    data = pd.merge(data, hadron_masses, on=['ens_id', 'alias_heavy', 'm_heavy'])
+    if process in ['Ds to K', 'Ds2K']:
+        data['M_daughter'] = data['kaon']
+        data['M_mother'] = data['ds']
     elif process in ['D to K', 'D2K']:
-        # For D to K, the "heavy" quark in the 2pt function corresponds to the
-        # daughter strange quark. The "light" quark in the 2pt function corresponds
-        # to the spectator.
-        masses.rename(columns={'mass': 'M_daughter', 'm_heavy':'m_light', 'm_light': 'm_spectator'}, inplace=True)
+        data['M_daughter'] = data['kaon']
+        data['M_mother'] = data['d']
+    elif process in ['D to pi', 'D2pi']:
+        data['M_daughter'] = data['pion']
+        data['M_mother'] = data['d']
     else:
         raise ValueError("Unrecognized process", process)
-    masses.rename(columns={'mass': 'M_daughter', 'm_heavy':'m_spectator'}, inplace=True)
-    data = pd.merge(data, masses, on=['ens_id', 'm_light', 'm_spectator'])
 
     # Read sea masses
     sea_masses = read_sea_masses(engine)
-    data = pd.merge(data, sea_masses[['ens_id', 'm_strange']], on='ens_id')
+    data = pd.merge(data, sea_masses[['ens_id', 'm_light', 'm_strange']], on='ens_id')
     return data
 
 
@@ -263,7 +263,12 @@ class FormFactorData:
     @property
     def f_scalar(self):
         if self._scalar is None:
-            self._scalar = read_all('S-S', self.process, self.engine)
+            df = read_all('S-S', self.process, self.engine)
+            # Renormalization is not required, since the scalar density is absolutely normalized.
+            # Changing units is not required, since the scalar form factor is dimensionless.
+            # Apply normalization to remove leading-order discretization effect from HQET
+            df['form_factor'] = df['form_factor'] * df['m_heavy'].apply(staggered.chfac)
+            self._scalar = df
         return self._scalar
 
     @property
@@ -287,6 +292,8 @@ class FormFactorData:
             df = pd.merge(df, self.w0, on=['a_fm', 'description'])
             print("Size after merging w0 scale", len(df))
             df['form_factor'] = df['form_factor'] * np.sqrt(df['w0_orig/a'])
+            # Apply normalization to remove leading-order discretization effect from HQET
+            df['form_factor'] = df['form_factor'] * df['m_heavy'].apply(staggered.chfac)
             self._parallel = df
         return self._parallel
 
@@ -306,6 +313,8 @@ class FormFactorData:
             df = pd.merge(df, self.w0, on=['a_fm', 'description'])
             print("Size after merging w0 scale", len(df))
             df['form_factor'] = df['form_factor'] / np.sqrt(df['w0_orig/a'])
+            # Apply normalization to remove leading-order discretization effect from HQET
+            df['form_factor'] = df['form_factor'] * df['m_heavy'].apply(staggered.chfac)            
             self._perp = df
         return self._perp
 
@@ -359,27 +368,32 @@ class FormFactorData:
 
         return fig, axarr
 
+
 class InputData:
-    def __init__(self, a_fm, m_light, m_heavy, m_strange, p2, M_daughter, description):
+    def __init__(self, a_fm, description, m_light, m_strange, m_heavy, dm_heavy, M_daughter, p2):
         """
-        TODO: doc here
+        Args:
+            a_fm: float, approximate lattice spacing in fm (e.g., 0.15). Used to look up exact scale
+            description: str, the ratio ml/ms (e.g., '1/27'). Used to look up the exact scale
+            m_light: float, bare mass of the light (u/d) quarks
+            m_strange: float, bare mass of the strange quark
+            m_heavy: float, bare mass of the heavy quark
+            dm_heavy: float, "mistuning" of the bare heavy quark mass in the problem (m-m_physical)
+            M_daughter: float or gvar, the mass of the daughter hadron
+            p2: np.array, the squared lattice momenta of the daughter hadron
         """
         scale = data_tables.ScaleSetting().data
         mask = (scale['a[fm]'] == a_fm) & (scale['description'] == description)
         w0 = gv.mean(scale[mask]['w0_orig/a'].item())
         # Convert to dimensionless units of w0
         self.m_light = m_light * w0
-        self.m_heavy = m_heavy * w0
         self.m_strange = m_strange * w0
-        self.mpi5 = gv.mean(M_daughter) * w0
+        self.m_heavy = m_heavy * w0
+        self.dm_heavy = dm_heavy * w0
         self.E = np.sqrt(M_daughter**2 + p2) * w0
 
     def asdict(self):
         return dict(self.__dict__)
-
-    def __str__(self):
-        return (f"InputData({self.a_fm}, {self.m_light}, {self.m_heavy}, {self.m_strange}, "
-                f"{self.p2}, {self.E}, {self.mpi5}")
 
     def __getitem__(self, key):
         return self.__dict__.get(key)
@@ -389,7 +403,7 @@ class InputData:
         return self.__dict__.get(key, default)
 
 
-def build_fit_data(dataframe, model_type=None):
+def build_fit_data(dataframe):
     """
     Builds dictionaries suitable for interpretation as input data
     for chiral-continuum fits with lsqfit, "data=(x,y)".
@@ -398,16 +412,15 @@ def build_fit_data(dataframe, model_type=None):
     Returns:
         xdict, ydict: the data dictionaries for the fit
     """
-    keys = ['description', 'a_fm', 'm_light', 'm_heavy', 'dm_heavy', 'm_spectator', 'm_strange']
+    keys = ['a_fm', 'description', 'm_light', 'm_strange', 'm_heavy', 'dm_heavy']
     groups = dataframe.groupby(keys)
     xdict, ydict = {}, {}
-    for key, subdf in groups:
-        (description, a_fm, m_light, m_heavy, dm_heavy, m_spectator, m_strange) = key
+    for (a_fm, description, m_light, m_strange, m_heavy, dm_heavy), subdf in groups:
         subdf = subdf.sort_values(by='E_daughter')
         y = subdf['form_factor'].values
         M_daughter = subdf['M_daughter'].apply(gv.mean).unique().item()
         p2 = subdf['p2'].values
-        x = InputData(a_fm, m_light, dm_heavy, m_strange, p2, M_daughter, description).asdict()
+        x = InputData(a_fm, description, m_light, m_strange, m_heavy, dm_heavy, M_daughter, p2).asdict()
 
         # Include continuum constants like fpi as independent "x-parameters"
         scale = data_tables.ScaleSetting()
@@ -419,6 +432,9 @@ def build_fit_data(dataframe, model_type=None):
         const = data_tables.StaggeredConstants().get_row(a_fm=a_fm)
         w0 = gv.mean(scale.get_row(a_fm=a_fm, description=description)['w0_orig/a'])
 
+        # Quantities with mass dimension zero
+        x['alpha_s'] = const['alpha_s']
+
         # Quantities with mass dimension +1
         x['mu'] = const['mu'] * w0
 
@@ -426,15 +442,16 @@ def build_fit_data(dataframe, model_type=None):
         for k in ['Delta_P', 'Delta_A', 'Delta_T', 'Delta_V', 'Delta_I',
                     'DeltaBar', 'Hairpin_V', 'Hairpin_A']:
             x[k] = gv.mean(const[k]) * w0**2
-        x['mu'] = const['mu'] * w0
 
-        if model_type is not None:
-            if 'SU3' in model_type:
-                x['mpi5'] = const['mu'] * (2 * m_light) * w0**2
-                x['mK5'] = const['mu'] * (m_light + m_strange) * w0**2
-                x['mS5'] = const['mu'] * (2 * m_strange) * w0**2
+        # Hadron masses
+        x['M_daughter'] = subdf['M_daughter'].apply(gv.mean).unique().item() * w0
+        x['M_mother'] = subdf['M_mother'].apply(gv.mean).unique().item() * w0
+        x['mpi5'] = subdf['pion'].apply(gv.mean).unique().item() * w0
+        x['mK5'] = subdf['kaon'].apply(gv.mean).unique().item() * w0
+        x['mS5'] = np.sqrt(const['mu'] * (2 * m_strange) * w0)
 
         # Collect results
+        key = FitKey(a_fm, description, m_light, m_strange, m_heavy)
         ydict[key] = y
         xdict[key] = x
 
@@ -504,6 +521,13 @@ class ContinuumLimit:
         ms_ctm = ms_ctm_MeV * scale.w0_fm / ctm.hbarc
         mc_ctm = mc_ctm_MeV * scale.w0_fm / ctm.hbarc
 
+        # Hadron masses
+        mpi5 = ctm.pdg['pi'] * scale.w0_fm / ctm.hbarc
+        mK5 = ctm.pdg['K'] * scale.w0_fm / ctm.hbarc
+        mS5 = np.nan
+        mother = self.mother * scale.w0_fm / ctm.hbarc
+        daughter = self.daughter * scale.w0_fm / ctm.hbarc
+
         # The physical low-energy constant "mu"
         # Infer LEC mu from Gell-Mann Oakes Renner: Mpi**2 = 2*mu*ml
         # Note: no special treatment is required for daughter kaons here.
@@ -518,19 +542,26 @@ class ContinuumLimit:
         f = ctm.pdg['fpi'] * scale.w0_fm / ctm.hbarc
         # f = ctm.pdg['fK'] * scale.w0_fm / ctm.hbarc
         # Note:
-        # m_heavy really represents the "mistuing" dm = (m-m0) of the heavy quark.
+        # dm_heavy represents the "mistuing" dm = (m-m0) of the heavy quark.
         # By definition, this difference vanishes at the physical point.
         return {
             'fpi': gv.mean(f),
             'm_light': gv.mean(ml_ctm),
             'm_strange': gv.mean(ms_ctm),
-            'm_heavy': 0,
+            'm_heavy': gv.mean(mc_ctm),
+            'dm_heavy': 0,
+            'alpha_s': 0,
             'E': np.linspace(gv.mean(energy_min), gv.mean(energy_max)),
-            'mpi5': gv.mean(self.daughter * scale.w0_fm / ctm.hbarc),
-            'mK5': mu_ctm * (ml_ctm + ms_ctm),
-            'mS5': mu_ctm * (2.0 * ms_ctm),
-            'mu': mu_ctm,
+            'mpi5': gv.mean(mpi5),
+            'mK5': gv.mean(mK5),
+            'mS5': gv.mean(mS5),
+            # 'mpi5': gv.mean(self.daughter * scale.w0_fm / ctm.hbarc),
+            # 'mK5': mu_ctm * (ml_ctm + ms_ctm),
+            # 'mS5': mu_ctm * (2.0 * ms_ctm),
+            'mu': gv.mean(mu_ctm),
             'DeltaBar': 0,
+            'M_mother': gv.mean(mother),
+            'M_daughter': gv.mean(daughter),
         }
 
 
@@ -547,70 +578,53 @@ class ModelVariations:
         prior = {
             'leading': gv.gvar(10, 10),
             'log(delta_pole)': np.log(delta_pole),
-            'c_a2': gv.gvar(0.0, 1.0),
         }
         if self.model_name != 'LogLess':
             prior['g'] = gv.gvar(10, 10)
         return prior
 
     def build_priors(self):
-        priors = {}
-
-        nlo_terms = ['c_l', 'c_h', 'c_E', 'c_E2']
-        nnlo_terms = ['c_l2', 'c_lh', 'c_lE', 'c_h2', 'c_hE']
-        if 'SU3' in self.model_name:
-            nlo_terms.append('c_s')
-            nnlo_terms.extend(['c_sl', 'c_sh', 'c_sE', 'c_s2'])
-        num_nnlo = len(nnlo_terms)
-
-        # Minimal fit
-        prior = self.build_base_prior()
-        for key in ['c_h', 'c_E', 'c_E2', 'c_lE', 'c_Eh']:
-            prior[key] = gv.gvar('0.0(1.0)')
-        priors['minimal'] = prior
-
-        # NLO
-        prior = self.build_base_prior()
-        for key in nlo_terms:
-            if key.startswith('log'):
-                prior[key] = np.log(gv.gvar(0.1, 1.0))
-            else:
-                prior[key] = gv.gvar(0.0, 1.0)
-        priors['NLO'] = prior
-
-        # Adding terms to NLO
-        for key in nnlo_terms:
-            prior = self.build_base_prior()
-            keys = nlo_terms+ [key]
-            for key in keys:
-                prior[key] = gv.gvar(0.0, 1.0)
-            label = 'NLO+{' + key +'}'
-            priors[label] = prior
-        priors['NLO'] = prior
-
-        # Full NNLO
-        keys = nlo_terms + nnlo_terms
-        prior = self.build_base_prior()
-        for key in keys:
-            if key.startswith('log'):
-                prior[key] = np.log(gv.gvar(0.1, 1.0))
-            else:
-                prior[key] = gv.gvar(0.0, 1.0)
-        priors['NNLO'] = prior
-
-        # Dropping terms from NNLO
-        for keys in itertools.combinations(nnlo_terms, num_nnlo-1):
-            keys = nlo_terms + list(keys)
-            prior = self.build_base_prior()
+        def _load_prior(adict, keys, width=1.0):
             for key in keys:
                 if key.startswith('log'):
-                    prior[key] = np.log(gv.gvar(0.1, 1.0))
+                    adict[key] = np.log(gv.gvar(0.1, width))
                 else:
-                    prior[key] = gv.gvar(0.0, 1.0)
+                    adict[key] = gv.gvar(0.0, width)
+            return adict
 
-            dropped = "{" + ",".join(np.setdiff1d(nlo_terms + nnlo_terms, keys)) + "}"
-            label = "NNLO-" + dropped
-            priors[label] = prior
+        priors = {}
+        nlo_terms = ['c_l', 'c_H', 'c_E', 'c_E2']
+        nnlo_terms = ['c_l2', 'c_lH', 'c_lE', 'c_H2', 'c_HE']
+        minimal_terms = ['c_H', 'c_E', 'c_E2', 'c_lE', 'c_EH']
+        if 'SU3' in self.model_name:
+            nlo_terms.append('c_s')
+            nnlo_terms.extend(['c_sl', 'c_sH', 'c_sE', 'c_s2'])
+
+        # NLO fit
+        # priors['NLO, a2'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms)
+
+        # Minimal fit
+        # priors['minimal'] = _load_prior(self.build_base_prior(), ['c_a2'] + minimal_terms)
+        # priors['minimal, wide'] = _load_prior(self.build_base_prior(), ['c_a2'] + minimal_terms, 100)
+
+        # Full NNLO
+        priors['NNLO'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms + nnlo_terms)
+        priors['NNLO, priors 10x'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms + nnlo_terms, 10)
+        # priors['NNLO, priors 100x'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms + nnlo_terms, 100)
+
+        # Alternative treatments of discretization errors
+        # - a = generic discetization effects
+        # - h = HQET discretization effects
+        priors['NNLO, a'] =  _load_prior(self.build_base_prior(), ['c_a'] + nlo_terms + nnlo_terms)
+        priors['NNLO, a4'] = _load_prior(self.build_base_prior(), ['c_a4'] + nlo_terms + nnlo_terms)
+        priors['NNLO, h2'] = _load_prior(self.build_base_prior(), ['c_h2'] + nlo_terms + nnlo_terms)
+        priors['NNLO, h4'] = _load_prior(self.build_base_prior(), ['c_h4'] + nlo_terms + nnlo_terms)
+        priors['NNLO, a2+a4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, a2+h2'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h2'] + nlo_terms + nnlo_terms)
+        priors['NNLO, a2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h4'] + nlo_terms + nnlo_terms)
+        priors['NNLO, h2+a4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_a4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, h2+h4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, a2+a4+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
 
         return priors
 
@@ -629,24 +643,27 @@ def run_fits(process, channel, engine):
     ctm = data_tables.ContinuumConstants()
     lam = gv.mean(700 * scale.w0_fm / ctm.hbarc)
 
-    models = {
-        'SU2': su2.SU2Model,
-        'HardSU2': su2.HardSU2Model,
-        # 'HardSU3': su3.HardSU3Model,
-        'SU2:continuum': su2.SU2Model,
-        'HardSU2:continuum': su2.HardSU2Model,
-        'LogLess': chipt.LogLessModel,
-    }
+    if process == 'Ds to K':
+        models = {
+            # 'SU2': su2.SU2Model,
+            'HardSU2': su2.HardSU2Model,
+            # 'SU2:continuum': su2.SU2Model,
+            'HardSU2:continuum': su2.HardSU2Model,
+            'LogLess': chipt.LogLessModel,
+        }
+    else:
+        models = {
+            # 'SU2': su2.SU2Model,
+            'HardSU2': su2.HardSU2Model,
+            # 'SU2:continuum': su2.SU2Model,
+            'HardSU2:continuum': su2.HardSU2Model,
+            'LogLess': chipt.LogLessModel,
+        }
 
     results = []
     for model_name, model_fcn in models.items():
         print("Starting fits for", model_name)
-        # Build data
-        # E_daughter = data['E_daughter'] / data['a_fm'] * ctm.hbarc
-#         cut = (E_daughter < 1050)  # i.e., < 1050 MeV
-#         x, y_data = build_fit_data(data[cut], model_name)
-        x, y_data = build_fit_data(data, model_name)
-
+        
         # Define models
         if model_name == 'LogLess':
             model = model_fcn(channel, process, lam=lam)
@@ -659,27 +676,51 @@ def run_fits(process, channel, engine):
 
         wrapped = WrappedModel(model)
         model_continuum = model_fcn(channel, process, lam=lam, continuum=True)
-        wrapped_continuum = WrappedModel(model_continuum)
         continuum = ContinuumLimit(model.process)
+        
+        # Masks for dropping parts of the dataset
+        masks = {
+            'full': data['a_fm'] > 0,  # trivially true by definition. The full dataset.
+            'omit 0.12 fm': data['a_fm'] != 0.12,  # drop the coarsest lattice spacing
+            'omit 0.042 fm': data['a_fm'] != 0.42,  # drop the finest lattice spacing
+            'mh/mc <= 1.1': ~data['alias_heavy'].isin(['1.4 m_charm', '1.5 m_charm', '2.0 m_charm', '2.2 m_charm']),
+        }
+        for mask_label, mask in masks.items():
+            # Build data
+            x, y_data = build_fit_data(data[mask])
 
-        # run the fit
-        priors = ModelVariations(model.process, model_name).priors
-        for label, prior in tqdm(priors.items()):
-            fit = lsqfit.nonlinear_fit(data=(x, y_data), fcn=wrapped, prior=prior, debug=True)#, svdcut=1e-2)
-            fit = serialize.SerializableNonlinearFit(fit)
-            y_ctm = model_continuum(continuum.x, fit.p)
-            result = fit.serialize()
-            result['model_name'] = model_name
-            result['model'] = model
-            result['model_ctm'] = model_continuum
-            result['continuum'] = continuum
-            result['label'] = label
-            result['fit'] = fit
-            result['process'] = process
-            result['channel'] = channel
-            result['f(q2max)'] = y_ctm[0]
-            result['f(q2=0)'] = y_ctm[-1]
-            result['f'] = y_ctm
-            results.append(result)
+            # Run variations on the model
+            priors = ModelVariations(model.process, model_name).priors
+            for label, prior in tqdm(priors.items()):
+                if (label != 'NNLO') & (mask_label not in ('full', 'mh/mc <= 1.1')):
+                    # Keep: full data and NNLO
+                    # Keep: full data and model variation
+                    # Keep: drop data and NNLO
+                    # Skip: drop data and model variation simultaneously
+                    continue
+
+                fit = lsqfit.nonlinear_fit(data=(x, y_data), fcn=wrapped, prior=prior, debug=True)
+                fit = serialize.SerializableNonlinearFit(fit)
+                y_ctm = model_continuum(continuum.x, fit.p)
+                result = fit.serialize()
+                result['model_name'] = model_name
+                result['model'] = model
+                result['model_ctm'] = model_continuum
+                result['continuum'] = continuum
+                result['label'] = label
+                result['dataset'] = mask_label
+                result['fit'] = fit
+                result['process'] = process
+                result['channel'] = channel
+                result['f(q2max)'] = y_ctm[0]
+                result['f(q2=0)'] = y_ctm[-1]
+                result['f(q2=middle)'] = y_ctm[len(y_ctm)//2]
+                result['f'] = y_ctm
+                results.append(result)
+
+
+        
+
 
     return data, pd.DataFrame(results)
+
