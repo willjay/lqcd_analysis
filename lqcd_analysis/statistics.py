@@ -82,7 +82,7 @@ def chi2(fit, augmented=False, trust_lsqfit=False):
         return fit.chi2
     # Standard chi2, without the term involving the prior
     argspec = getfullargspec(fit.fcn)
-    if argspec.args == ['x', 'p']:
+    if (argspec.args == ['x', 'p']) or (argspec.args == ['self', 'x', 'p']):
         result = correlated_chi2(fit.fcn(fit.x, fit.p), fit.y)
     else:
         result = correlated_chi2(fit.fcn(fit.p), fit.y)
