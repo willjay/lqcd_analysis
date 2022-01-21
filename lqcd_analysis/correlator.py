@@ -268,6 +268,8 @@ class TwoPoint(object):
             if not kwargs.get('color'):
                 if ti:
                     kwargs['color'] = ax.lines[-1].get_color()  # match colors
+            if ti == 1:
+                kwargs.pop('label', None)
             plt.errorbar(ax, x[mask], y[mask], marker=marker, **kwargs)
 
         return ax
