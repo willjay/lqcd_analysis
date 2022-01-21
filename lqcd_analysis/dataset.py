@@ -110,20 +110,23 @@ def ensure_masses_exist(data, form_factor, a_fm, use_pdg=False):
     return data
 
 
-def fold(arr):
+def fold(arr, antiperiodic=False):
     """Fold periodic correlator data."""
+    sign = +1.0
+    if antiperiodic:
+        sign = -1.0
     try:
         _, nt = arr.shape
         t = np.arange(nt)
         front = arr[:, :nt // 2 + 1]
         back = arr[:, (nt - t) % nt][:, :nt // 2 + 1]
-        new_arr = np.mean([front, back], axis=0)
+        new_arr = np.mean([front, sign*back], axis=0)
     except ValueError:
         nt, = arr.shape
         t = np.arange(nt)
         front = arr[:nt // 2 + 1]
         back = arr[(nt - t) % nt][:nt // 2 + 1]
-        new_arr = np.mean([front, back], axis=0)
+        new_arr = np.mean([front, sign*back], axis=0)
     return new_arr
 
 
