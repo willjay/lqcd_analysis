@@ -318,13 +318,17 @@ class TwoPoint(object):
 
 class ThreePoint(object):
     """ThreePoint correlation function."""
-    def __init__(self, tag, ydict, noise_threshy=0.03):
+    def __init__(self, tag, ydict, noise_threshy=0.03, nt=None):
         self.tag = tag
         self.ydict = ydict
-        self._verify_ydict()
+        self._verify_ydict(nt)
         self.noise_threshy = noise_threshy
         tmp = list(self.values())[0]  # safe since we verified ydict
-        self.times = BaseTimes(tdata=np.arange(len(tmp)))
+        if nt is None:
+            tdata = np.arange(len(tmp))
+        else:
+            tdata = np.arange(nt)
+        self.times = BaseTimes(tdata=tdata, nt=nt)
         self.times.tmax = _infer_tmax(tmp, noise_threshy)
 
     def __str__(self):
@@ -332,14 +336,15 @@ class ThreePoint(object):
             format(self.tag, self.times.tmin, self.times.tmax,
                    self.times.nt, sorted(list(self.t_snks)))
 
-    def _verify_ydict(self):
+    def _verify_ydict(self, nt=None):
         for t_sink in self.ydict:
             if not isinstance(t_sink, int):
                 raise TypeError("t_sink keys must be integers.")
-        try:
-            np.unique([len(arr) for arr in self.ydict.values()]).item()
-        except ValueError as _:
-            raise ValueError("Values in ydict must have same length.")
+        if nt is None:
+            try:
+                np.unique([len(arr) for arr in self.ydict.values()]).item()
+            except ValueError as _:
+                raise ValueError("Values in ydict must have same length.")
 
     def avg(self, m_src, m_snk):
         """
@@ -365,12 +370,12 @@ class ThreePoint(object):
                 + np.roll(ratio, -2, axis=0)
             )
 
-        t = np.arange(self.times.nt)
         c3bar = {}
         t_snks = np.sort(np.array(self.t_snks))
         # pylint: disable=invalid-name,protected-access
         for T in t_snks:
             c3 = self.ydict[T]  # C(t, T)
+            t = np.arange(len(c3))
             ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T-t))
             tmp = _combine(ratio)
             c3bar[T] = tmp * np.exp(-m_src*t) * np.exp(-m_snk*(T-t))
