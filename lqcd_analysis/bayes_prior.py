@@ -408,6 +408,32 @@ def pion_osc_energy(n):
         return gv.gvar(500, 300)
     return gv.gvar(500 + 400*(n-1), 800)
 
+# For kaons I've only adjusted the n=1 pion energy..
+def kaon_energy(n):
+    """
+    Get the energy of the nth excited pion in MeV.
+    """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(494, 100)
+        #return gv.gvar(135, 50)
+    if n == 2:
+        return (gv.gvar(1300, 400))
+    return gv.gvar(1300 + 400*(n-2), 400)
+
+
+def kaon_osc_energy(n):
+    """
+    Get the energy of the nth excited opposite-parity pion in MeV.
+    """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(500, 300)
+    return gv.gvar(500 + 400*(n-1), 800)
+
+
 
 def d_energy(n):
     """ Get the energy of the nth excited D meson in MeV. """
@@ -436,9 +462,17 @@ def b_energy(n):
         return gv.gvar(5280, 200)
     return gv.gvar(5280 + 1000*(n-1), 1000)
 
+def Bs_energy(n):
+    """ Get the energy of the nth excited B_s meson in MeV. """
+    MBs = 5367  # PDG value.
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(MBs, 200)
+    return gv.gvar(MBs + 1000*(n-1), 1000)
 
 def b_osc_energy(n):
-    """ Get the energy of the nth excted opposite-parity D meson in MeV. """
+    """ Get the energy of the nth excited opposite-parity B meson in MeV. """
     if n == 0:
         return 0.
     if n == 1:
@@ -447,6 +481,15 @@ def b_osc_energy(n):
         # B0, albeit with a large uncertainty on the precise value.
         return gv.gvar(5600, 1000)
     return gv.gvar(5600 + 1000*(n-1), 1000)
+
+def Bs_osc_energy(n):
+    """ Get the energy of the nth excited opposite-parity B_s meson in MeV. """
+    if n == 0:
+        return 0.
+    if n == 1:
+        return gv.gvar(5500, 1000)
+    return gv.gvar(5700 + 1000*(n-1), 1000)
+
 
 def boost(dE, p2):
     """
@@ -481,7 +524,8 @@ class PhysicalSplittings():
     """
     def __init__(self, state):
         state = str(state).lower()
-        if state not in ['pion', 'pion_osc', 'd', 'd_osc', 'b', 'b_osc']:
+        if state not in ['pion', 'pion_osc', 'kaon', 'kaon_osc', 
+                         'd', 'd_osc', 'b', 'b_osc', 'bs', 'bs_osc']:
             raise ValueError(f"Unrecognized state. Found state={state}")
         self.state = state
 
@@ -490,6 +534,10 @@ class PhysicalSplittings():
             return pion_energy(n)
         elif self.state == 'pion_osc':
             return pion_osc_energy(n)
+        elif self.state == 'kaon':
+            return kaon_energy(n)
+        elif self.state == 'kaon_osc':
+            return kaon_osc_energy(n)
         elif self.state == 'd':
             return d_energy(n)
         elif self.state == 'd_osc':
@@ -498,6 +546,10 @@ class PhysicalSplittings():
             return b_energy(n)
         elif self.state == 'b_osc':
             return b_osc_energy(n)
+        elif self.state == 'bs':
+            return Bs_energy(n)
+        elif self.state == 'bs_osc':
+            return Bs_osc_energy(n)
         else:
             raise ValueError("Unrecognized state")
 
@@ -575,6 +627,121 @@ class FormFactorPriorD2Pi(BasePrior):
             prior['Vnn'][0,0] = gv.gvar(mean, err)
         super(FormFactorPriorD2Pi, self).__init__(mapping=prior, **kwargs)
 
+class FormFactorPriorH2Pi(BasePrior):
+    """
+    Class for building priors for D to pi form factor analyses inspired by
+    physical results in the PDG.
+    """
+    def __init__(self, nstates, ds=None, a_fm=None,
+                     heavy_factor=None, amh=None, **kwargs):
+        prior = {}
+        amp = "0.1(0.4)"  # Generic amplitude prior.
+        mc_over_mb = 1/4.568
+        if heavy_factor is None:  # see usage threept_q2max.ipynb
+            hbarc = 0.197327
+            #mb = 3.9
+            mb = 4.2 # 2102.09609
+            sf = (amh*hbarc/(a_fm*mb))**0.7  # Scale factor (see pdg.py).
+            #sf = (amh*hbarc/(a_fm*mb))**0.6  # Scale factor (see pdg.py).
+            #sf = 0.57
+            #sf=0.96
+            #sf=0.92
+            #sf=0.75
+        else:  # see usage threept_batch.ipynb
+            sf = (heavy_factor*mc_over_mb)**0.7  # Scale factor (see pdg.py).
+        print('sf:', sf)
+
+        # Decaying states
+        prior['light-light:dE'] = PhysicalSplittings('pion')(nstates.n, a_fm)
+        prior['light-light:a'] = decay_amplitudes(nstates.n, amp, amp)
+        prior['heavy-light:dE'] = PhysicalSplittings('Bs')(nstates.m, a_fm,
+                                                           scale=sf)
+        prior['heavy-light:a'] = decay_amplitudes(nstates.m, amp, amp)
+        
+        # Oscillating states
+        if nstates.no:
+            prior['light-light:dEo'] = PhysicalSplittings('pion_osc')(nstates.no, a_fm)
+            prior['light-light:ao'] = osc_amplitudes(nstates.no, amp)
+        if nstates.mo:
+            prior['heavy-light:dEo'] = PhysicalSplittings('Bs_osc')(nstates.mo, 
+                                                a_fm, scale=sf)
+            prior['heavy-light:ao'] = osc_amplitudes(nstates.mo, amp)
+
+        # Matrix elements Vnn
+        for key, value in vmatrix(nstates).items():
+            if value.size:  # skip empty matrices
+                prior[key] = value
+
+        # Make informed guesses for ground states and the form factor Vnn[0,0].
+        # Estimate central values as well as possible, but keep wide priors.
+        if ds is not None:
+            for tag in ['light-light', 'heavy-light']:
+                mean = gv.mean(ds[tag].mass)  # Central value from "meff"
+                err = gv.sdev(prior[f"{tag}:dE"][0])
+                prior[f"{tag}:dE"][0] = gv.gvar(mean, err)
+            mean = gv.mean(ds.v_guess)  # Central value from ratio R
+            err = 0.5 * mean
+            prior['Vnn'][0,0] = gv.gvar(mean, err)
+        super(FormFactorPriorH2Pi, self).__init__(mapping=prior, **kwargs)
+
+class FormFactorPriorH2K(BasePrior):
+    """
+    Class for building priors for D to pi form factor analyses inspired by
+    physical results in the PDG.
+    """
+    def __init__(self, nstates, ds=None, a_fm=None,
+                     heavy_factor=None, amh=None, **kwargs):
+        prior = {}
+        amp = "0.1(0.4)"  # Generic amplitude prior.
+        mc_over_mb = 1/4.568
+        if heavy_factor is None:  # see usage threept_q2max.ipynb
+            hbarc = 0.197327
+            #mb = 3.9
+            mb = 4.2 # 2102.09609
+            sf = (amh*hbarc/(a_fm*mb))**0.7  # Scale factor (see pdg.py).
+            #sf = (amh*hbarc/(a_fm*mb))**0.6  # Scale factor (see pdg.py).
+            #sf = 0.57
+            #sf=0.96
+            #sf=0.92
+            #sf=0.75
+        else:  # see usage threept_batch.ipynb
+            sf = (heavy_factor*mc_over_mb)**0.7  # Scale factor (see pdg.py).
+        print('sf:', sf)
+
+        # Decaying states
+        prior['light-light:dE'] = PhysicalSplittings('kaon')(nstates.n, a_fm)
+        print('prior:', prior['light-light:dE'])
+        prior['light-light:a'] = decay_amplitudes(nstates.n, amp, amp)
+        prior['heavy-light:dE'] = PhysicalSplittings('Bs')(nstates.m, a_fm,
+                                                           scale=sf)
+        prior['heavy-light:a'] = decay_amplitudes(nstates.m, amp, amp)
+        
+        # Oscillating states
+        if nstates.no:
+            prior['light-light:dEo'] = PhysicalSplittings('kaon_osc')(nstates.no, a_fm)
+            prior['light-light:ao'] = osc_amplitudes(nstates.no, amp)
+        if nstates.mo:
+            prior['heavy-light:dEo'] = PhysicalSplittings('Bs_osc')(nstates.mo, 
+                                                a_fm, scale=sf)
+            prior['heavy-light:ao'] = osc_amplitudes(nstates.mo, amp)
+
+        # Matrix elements Vnn
+        for key, value in vmatrix(nstates).items():
+            if value.size:  # skip empty matrices
+                prior[key] = value
+
+        # Make informed guesses for ground states and the form factor Vnn[0,0].
+        # Estimate central values as well as possible, but keep wide priors.
+        if ds is not None:
+            for tag in ['light-light', 'heavy-light']:
+                mean = gv.mean(ds[tag].mass)  # Central value from "meff"
+                err = gv.sdev(prior[f"{tag}:dE"][0])
+                prior[f"{tag}:dE"][0] = gv.gvar(mean, err)
+            mean = gv.mean(ds.v_guess)  # Central value from ratio R
+            err = 0.5 * mean
+            prior['Vnn'][0,0] = gv.gvar(mean, err)
+        super(FormFactorPriorH2K, self).__init__(mapping=prior, **kwargs)
+
 # NOTE for time being I am 'overriding' the heavy-light and light-light
 # tags relevant for D to pi for use in B to D. Eventually will want to
 # correct this.
@@ -582,19 +749,29 @@ class FormFactorPriorH2D(BasePrior):
     """
     Class for building priors for B to D form factor analyses.
     """
-    def __init__(self, nstates, amh, ds=None, a_fm=None, **kwargs):
+    def __init__(self, nstates, ds=None, a_fm=None, 
+                 heavy_factor=None, amh=None, **kwargs):
         prior = {}
         amp = "0.1(0.4)"  # Generic amplitude prior.
-        hbarc = 0.197327  # GeV-fm.
-        mc = 0.99  # MSbar at 3 GeV.
-        mb = 4.2 # MSbar at mb.
-        sf = (amh*hbarc/(a_fm*mb))**0.7  # Scale factor (see pdg.py).
+        mc_over_mb = 1/4.568
+        if heavy_factor is None:  # see usage threept_q2max.ipynb
+            hbarc = 0.197327
+            #mb = 3.9
+            mb = 4.2 # 2102.09609
+            sf = (amh*hbarc/(a_fm*mb))**0.7  # Scale factor (see pdg.py).
+            #sf = (amh*hbarc/(a_fm*mb))**0.6  # Scale factor (see pdg.py).
+            #sf = 0.57
+            #sf=0.96
+            #sf=0.92
+            #sf=0.75
+        else:  # see usage threept_batch.ipynb
+            sf = (heavy_factor*mc_over_mb)**0.7  # Scale factor (see pdg.py).
         print('sf:', sf)
-        
+
         # Decaying states
         prior['light-light:dE'] = PhysicalSplittings('d')(nstates.n, a_fm)
         prior['light-light:a'] = decay_amplitudes(nstates.n, amp, amp)
-        prior['heavy-light:dE'] = PhysicalSplittings('b')(nstates.m, a_fm,
+        prior['heavy-light:dE'] = PhysicalSplittings('Bs')(nstates.m, a_fm,
                                                            scale=sf)       
         prior['heavy-light:a'] = decay_amplitudes(nstates.m, amp, amp)
         # Oscillating states
@@ -602,7 +779,7 @@ class FormFactorPriorH2D(BasePrior):
             prior['light-light:dEo'] = PhysicalSplittings('d_osc')(nstates.no, a_fm)
             prior['light-light:ao'] = osc_amplitudes(nstates.no, amp)
         if nstates.mo:
-            prior['heavy-light:dEo'] = PhysicalSplittings('b_osc')(nstates.mo, 
+            prior['heavy-light:dEo'] = PhysicalSplittings('Bs_osc')(nstates.mo, 
                                                  a_fm, scale=sf)
             prior['heavy-light:ao'] = osc_amplitudes(nstates.mo, amp)
 
