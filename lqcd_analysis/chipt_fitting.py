@@ -118,9 +118,12 @@ def correlate_boot_data(dataframe):
     level_2 = ['form_factor_id','alias_light','alias_heavy','momentum']
     output = []
     for (ens_id, description), df in dataframe.groupby(level_1):
+        bad_draws = df[df['chi2_per_dof'] > 10]['draw_number'].unique()
+        keep = ~df['draw_number'].isin(bad_draws)
+        print(f"ens_id={ens_id}: dropping {len(bad_draws)}.")
         data = []
         boot = {k: [] for k in ['form_factor','energy_src','energy_snk','amp_src','amp_snk']}
-        for tags, subdf in df.groupby(level_2):
+        for tags, subdf in df[keep].groupby(level_2):
             form_factor_id, alias_light, alias_heavy, momentum = tags
             ns = subdf['ns'].unique().item()
             for key in boot:
@@ -403,7 +406,7 @@ class InputData:
         return self.__dict__.get(key, default)
 
 
-def build_fit_data(dataframe):
+def build_fit_data(dataframe, mother_name):
     """
     Builds dictionaries suitable for interpretation as input data
     for chiral-continuum fits with lsqfit, "data=(x,y)".
@@ -412,6 +415,8 @@ def build_fit_data(dataframe):
     Returns:
         xdict, ydict: the data dictionaries for the fit
     """
+    if mother_name not in ['D', 'D_s']:
+        raise ValueError("Unexpected mother_name:", mother_name)
     keys = ['a_fm', 'description', 'm_light', 'm_strange', 'm_heavy', 'dm_heavy']
     groups = dataframe.groupby(keys)
     xdict, ydict = {}, {}
@@ -426,6 +431,7 @@ def build_fit_data(dataframe):
         scale = data_tables.ScaleSetting()
         ctm = data_tables.ContinuumConstants()
         fpi = ctm.pdg['fpi'] * scale.w0_fm / ctm.hbarc
+        M_pdg = gv.mean(ctm.pdg[mother_name] * scale.w0_fm / ctm.hbarc)
         x['fpi'] = gv.mean(fpi)
 
         # Include staggered low-energy constants as independent "x-parameters"
@@ -449,6 +455,9 @@ def build_fit_data(dataframe):
         x['mpi5'] = subdf['pion'].apply(gv.mean).unique().item() * w0
         x['mK5'] = subdf['kaon'].apply(gv.mean).unique().item() * w0
         x['mS5'] = np.sqrt(const['mu'] * (2 * m_strange) * w0)
+        
+        # Heavy meson splitting
+        x['dMH2'] = x['M_mother']**2 - M_pdg**2
 
         # Collect results
         key = FitKey(a_fm, description, m_light, m_strange, m_heavy)
@@ -549,6 +558,7 @@ class ContinuumLimit:
             'm_light': gv.mean(ml_ctm),
             'm_strange': gv.mean(ms_ctm),
             'm_heavy': gv.mean(mc_ctm),
+            'dMH2': 0,
             'dm_heavy': 0,
             'alpha_s': 0,
             'E': np.linspace(gv.mean(energy_min), gv.mean(energy_max)),
@@ -620,11 +630,12 @@ class ModelVariations:
         priors['NNLO, h2'] = _load_prior(self.build_base_prior(), ['c_h2'] + nlo_terms + nnlo_terms)
         priors['NNLO, h4'] = _load_prior(self.build_base_prior(), ['c_h4'] + nlo_terms + nnlo_terms)
         priors['NNLO, a2+a4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4'] + nlo_terms + nnlo_terms)
-        # priors['NNLO, a2+h2'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h2'] + nlo_terms + nnlo_terms)
+        priors['NNLO, a2+h2'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h2'] + nlo_terms + nnlo_terms)
         priors['NNLO, a2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h4'] + nlo_terms + nnlo_terms)
         priors['NNLO, h2+a4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_a4'] + nlo_terms + nnlo_terms)
-        # priors['NNLO, h2+h4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
-        # priors['NNLO, a2+a4+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
+        priors['NNLO, h2+h4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
+        priors['NNLO, a2+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
+        priors['NNLO, a2+a4+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
 
         return priors
 
@@ -637,6 +648,13 @@ class WrappedModel:
 
 
 def run_fits(process, channel, engine):
+
+    if process in ['D to pi', 'D to K']:
+        mother_name = 'D'
+    elif process in ['Ds to K']:
+        mother_name = 'Ds'
+    else:
+        raise ValueError("Unexpected process", process)
 
     data = FormFactorData(process, engine)[channel]
     scale = data_tables.ScaleSetting()
@@ -682,17 +700,20 @@ def run_fits(process, channel, engine):
         masks = {
             'full': data['a_fm'] > 0,  # trivially true by definition. The full dataset.
             'omit 0.12 fm': data['a_fm'] != 0.12,  # drop the coarsest lattice spacing
-            'omit 0.042 fm': data['a_fm'] != 0.42,  # drop the finest lattice spacing
+            'omit 0.042 fm': data['a_fm'] != 0.042,  # drop the finest lattice spacing
             'mh/mc <= 1.1': ~data['alias_heavy'].isin(['1.4 m_charm', '1.5 m_charm', '2.0 m_charm', '2.2 m_charm']),
+            'mh/mc = 1.0 only': data['alias_heavy'] == '1.0 m_charm',
+            'physical pions only': data['description'] == '1/27',
         }
         for mask_label, mask in masks.items():
             # Build data
-            x, y_data = build_fit_data(data[mask])
+            x, y_data = build_fit_data(data[mask], mother_name=mother_name)
 
             # Run variations on the model
             priors = ModelVariations(model.process, model_name).priors
             for label, prior in tqdm(priors.items()):
-                if (label != 'NNLO') & (mask_label not in ('full', 'mh/mc <= 1.1')):
+                # if (label != 'NNLO') & (mask_label not in ('full', 'mh/mc <= 1.1')):
+                if (label != 'NNLO') & (mask_label not in ('full', )):
                     # Keep: full data and NNLO
                     # Keep: full data and model variation
                     # Keep: drop data and NNLO

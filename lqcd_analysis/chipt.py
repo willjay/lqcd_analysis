@@ -96,6 +96,9 @@ def analytic_terms(chi, params, continuum=False, order=None):
     re_log = re.compile(r'^log\((\S+)\)$')
     result = 0.
     alpha_s = chi['alpha_s']
+    # Approximate ratio v/c for D mesons
+    # See https://arxiv.org/pdf/hep-lat/0610092.pdf, especially discussion around Table III.
+    v_by_c = np.sqrt(0.1)
     for name, value in params.items():
         # Handle log priors
         match = re_log.match(name)
@@ -121,7 +124,7 @@ def analytic_terms(chi, params, continuum=False, order=None):
                     # order alpha_s (a Lamba)^2 and alpha_s (a m_h)**2, respectively.
                     # See discussion around Eqs (5.15 and 5.16) in
                     # [https://arxiv.org/pdf/1712.09262.pdf]
-                    term *= alpha_s
+                    term *= (alpha_s * v_by_c)**int(power/2)
             result += term
     return result
 
@@ -426,8 +429,7 @@ class ChiralExpansionParameters:
     """
     Wrapper class for the dimensionless chiral expansion parameters "chi."
     Args:
-        x, params: dicts with keys 'm_light', 'm_heavy', 'E', 'mu', 'fpi', and
-        'DeltaBar'
+        x, params: dicts with keys 'm_light', 'm_heavy', 'E', 'mu', 'fpi', and 'DeltaBar'
     """
 
     def __init__(self, x, params):
@@ -436,7 +438,8 @@ class ChiralExpansionParameters:
         self._validate()
 
     def _validate(self):
-        keys = ['m_light', 'm_strange', 'm_heavy', 'dm_heavy', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
+        # keys = ['m_light', 'm_strange', 'm_heavy', 'dm_heavy', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
+        keys = ['m_light', 'm_strange', 'm_heavy', 'dMH2', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
         for key in keys:
             test = (int(key in self.x) + int(key in self.params))
             if test == 1:
@@ -496,10 +499,12 @@ class ChiralExpansionParameters:
         [https://arxiv.org/abs/1509.06235], J. Bailey et al., PRD 93, 025026
         (2016) "B -> Kl+l− decay form factors from three-flavor lattice QCD."
         """
-        mu = self._get('mu')
+        # mu = self._get('mu')
         fpi = self._get('fpi')
-        dm_heavy = self._get('dm_heavy')
-        return 2. * mu * dm_heavy / (8. * np.pi**2. * fpi**2.)
+        # dm_heavy = self._get('dm_heavy')
+        # return 2. * mu * dm_heavy / (8. * np.pi**2. * fpi**2.)
+        dMH2 = self._get('dMH2')
+        return dMH2 / (8. * np.pi**2. * fpi**2.)
 
     @property
     def energy(self):
