@@ -758,7 +758,7 @@ class FormFactorRawData:
         if self.binsize == 1:
             data = self.data_raw
         else:
-            data = {tag: avg_bin(data[tag], self.binsize) for tag in self.data_raw}
+            data = {tag: avg_bin(self.data_raw[tag], self.binsize) for tag in self.data_raw}
         for checksum, draw in resample.Bootstrap(data, seed=seed, **bootstrap_kwargs):
             # Note: data is already binned before resampling.
             # No additional binning is needed (and, indeed, would be incorrect).
