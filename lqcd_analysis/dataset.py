@@ -754,7 +754,14 @@ class FormFactorRawData:
         Returns:
             generator which yields tuples (checksum, FormFactorDataset)
         """
-        for checksum, draw in resample.Bootstrap(self.data_raw, seed=seed, **bootstrap_kwargs):
+        # Bin data (e.g., to combat autocorrelations) before resampling.
+        if self.binsize == 1:
+            data = self.data_raw
+        else:
+            data = {tag: avg_bin(data[tag], self.binsize) for tag in self.data_raw}
+        for checksum, draw in resample.Bootstrap(data, seed=seed, **bootstrap_kwargs):
+            # Note: data is already binned before resampling.
+            # No additional binning is needed (and, indeed, would be incorrect).
             mean = build_dataset(draw, binsize=1, noerror=True)
             data = FormFactorDataset(
                 gv.gvar(mean, self.cov),
