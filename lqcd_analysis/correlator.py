@@ -5,13 +5,11 @@ effective_mass
 fold
 BaseCorrelator
 """
-import pathlib
 import logging
 import numpy as np
 import gvar as gv
 from . import fastfit
 from . import visualize as plt
-from . import utils
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,9 +42,6 @@ def effective_mass_local(data, ti=0, dt=1):
     >>> meff_even = effective_mass_local(c2, ti=0, dt=2)  # Even timeslices only
     >>> meff_odd = effective_mass_local(c2, ti=1, dt=2)  # Odd timeslices only
     """
-    # tmp = data[ti::dt]
-    # c_t = tmp[:-1]
-    # c_tpdt = tmp[1:]
     c_t = data[ti::dt][:-1]
     c_tpdt = data[ti::dt][1:]
     return np.array((1/dt)*np.log(c_t/c_tpdt))
@@ -241,10 +236,11 @@ class TwoPoint(object):
         ax.set_yscale('log')
         return ax
 
-    def plot_meff(self, ax=None, avg=False, a_fm=None, **kwargs):
+    def plot_meff(self, ax=None, avg=False, a_fm=None, tmax=np.inf, **kwargs):
         """Plot the effective mass of the correlator."""
         if ax is None:
             _, ax = plt.subplots(1)
+        kwargs['fmt'] = kwargs.get('fmt', 'o')
         if avg:
             y = effective_mass(self.avg())
             x = self.times.tdata[1:-1]
@@ -253,10 +249,33 @@ class TwoPoint(object):
             x = self.times.tdata[1:-1]
         if a_fm is not None:
             y = y * 197 / a_fm
-        plt.errorbar(ax, x, y, **kwargs)
+        mask = x < (tmax + 1)
+        plt.errorbar(ax, x[mask], y[mask], **kwargs)
+        return ax
+
+    def plot_meff_even_odd(self, ax=None, a_fm=None, tmax=np.inf, **kwargs):
+        """Plot the effective mass from the even and odd timeslices of the correlator."""
+        if ax is None:
+            _, ax = plt.subplots(1)
+        _ = kwargs.pop('avg', None)  # discard keyword 'arg' for easier compatibility with plot_meff
+
+        for ti, marker in zip([0, 1], ['^', 'o']):
+            y = 0.5 * effective_mass(self.ydata[ti::2])
+            x = np.arange(ti, 2*len(y), 2)
+            if a_fm is not None:
+                y = y * 197 / a_fm
+            mask = x < (tmax + 1)
+            if not kwargs.get('color'):
+                if ti:
+                    kwargs['color'] = ax.lines[-1].get_color()  # match colors
+            if ti == 1:
+                kwargs.pop('label', None)
+            plt.errorbar(ax, x[mask], y[mask], marker=marker, **kwargs)
+
         return ax
 
     def plot_n2s(self, ax=None, **kwargs):
+        """Plot the noise-to-signal ratio."""
         if ax is None:
             _, ax = plt.subplots(1)
         y = self.ydata
@@ -268,11 +287,11 @@ class TwoPoint(object):
         ax.set_xlabel("t/a")
         return ax
 
-    def plot_summary(self, axarr=None, a_fm=None, avg=False, label=None):
+    def plot_summary(self, axarr=None, a_fm=None, avg=False, even_odd=False, tmax=np.inf, label=None):
         """
         Plot a brief summary of the correlator as a row
         of three figures:
-        [Eorrelator C(t)] [Effective mass] [Noise-to-signal]
+        [Correlator C(t)] [Effective mass] [Noise-to-signal]
         Args:
             axarr: optional array of axes on which to plot
             a_fm: float, the lattice spacing for conversion to MeV
@@ -283,8 +302,13 @@ class TwoPoint(object):
             _, axarr = plt.subplots(ncols=3, figsize=(15, 5))
         ax1, ax2, ax3 = axarr
 
+        if even_odd:
+            plot_meff = self.plot_meff_even_odd
+        else:
+            plot_meff = self.plot_meff
+
         self.plot_corr(ax=ax1, label=label)
-        self.plot_meff(ax=ax2, a_fm=a_fm, fmt='o', avg=avg, label=label)
+        plot_meff(ax=ax2, a_fm=a_fm, fmt='o', avg=avg, tmax=tmax, label=label)
         self.plot_n2s(ax=ax3, label=label)
 
         ax1.set_title("Correlator C(t)")
@@ -294,13 +318,17 @@ class TwoPoint(object):
 
 class ThreePoint(object):
     """ThreePoint correlation function."""
-    def __init__(self, tag, ydict, noise_threshy=0.03):
+    def __init__(self, tag, ydict, noise_threshy=0.03, nt=None):
         self.tag = tag
         self.ydict = ydict
-        self._verify_ydict()
+        self._verify_ydict(nt)
         self.noise_threshy = noise_threshy
         tmp = list(self.values())[0]  # safe since we verified ydict
-        self.times = BaseTimes(tdata=np.arange(len(tmp)))
+        if nt is None:
+            tdata = np.arange(len(tmp))
+        else:
+            tdata = np.arange(nt)
+        self.times = BaseTimes(tdata=tdata, nt=nt)
         self.times.tmax = _infer_tmax(tmp, noise_threshy)
 
     def __str__(self):
@@ -308,14 +336,15 @@ class ThreePoint(object):
             format(self.tag, self.times.tmin, self.times.tmax,
                    self.times.nt, sorted(list(self.t_snks)))
 
-    def _verify_ydict(self):
+    def _verify_ydict(self, nt=None):
         for t_sink in self.ydict:
             if not isinstance(t_sink, int):
                 raise TypeError("t_sink keys must be integers.")
-        try:
-            np.unique([len(arr) for arr in self.ydict.values()]).item()
-        except ValueError as _:
-            raise ValueError("Values in ydict must have same length.")
+        if nt is None:
+            try:
+                np.unique([len(arr) for arr in self.ydict.values()]).item()
+            except ValueError as _:
+                raise ValueError("Values in ydict must have same length.")
 
     def avg(self, m_src, m_snk):
         """
@@ -341,28 +370,21 @@ class ThreePoint(object):
                 + np.roll(ratio, -2, axis=0)
             )
 
-        t = np.arange(self.times.nt)
         c3bar = {}
         t_snks = np.sort(np.array(self.t_snks))
-        dt_snks = t_snks[1:] - t_snks[:-1]
         # pylint: disable=invalid-name,protected-access
-        for dT, T in zip(dt_snks, t_snks):
+        for T in t_snks:
             c3 = self.ydict[T]  # C(t, T)
+            t = np.arange(len(c3))
             ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T-t))
             tmp = _combine(ratio)
-            # When dT is odd, average the results for T and T+dT.
-            # For the case dT=1, this average reduces to the cited equation.
-            # When dT is even, just use the result for T by itself
-            if bool(dT % 2):
-                c3 = self.ydict[T+dT]  # C(t, T+dT)
-                ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T+dT-t))
-                tmp = 0.5 * (tmp + _combine(ratio))
             c3bar[T] = tmp * np.exp(-m_src*t) * np.exp(-m_snk*(T-t))
         # pylint: enable=invalid-name,protected-access
         return c3bar
 
     @property
     def t_snks(self):
+        """Returns the sink times T."""
         return list(self.keys())
 
     def __getitem__(self, key):

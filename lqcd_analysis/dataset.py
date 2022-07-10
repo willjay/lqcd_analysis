@@ -16,6 +16,7 @@ from . import visualize as plt
 from . import utils
 from . import staggered
 from . import pdg
+from . import resample
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def get_sign(data):
     return signs[0]
 
 
-def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3):
+def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3, skip_fastfit=False, fold=True, nt=None):
     """
     Wrangles raw data into a useful form ahead of passign to a fitter.
     Args:
@@ -59,14 +60,15 @@ def wrangle_data(data_raw, sign=+1, binsize=10, shrink_choice='nonlinear', noise
     """
     data_binned = build_dataset(
         data_raw,
-        do_fold=True,
+        do_fold=fold,
         binsize=binsize,
         shrink_choice=shrink_choice)
     data = FormFactorDataset(
         data_binned,
         sign=sign,
         noise_threshy=noise_threshy,
-        skip_fastfit=False)
+        skip_fastfit=skip_fastfit,
+        nt=nt)
     return data
 
 def ensure_masses_exist(data, form_factor, a_fm, use_pdg=False):
@@ -109,20 +111,23 @@ def ensure_masses_exist(data, form_factor, a_fm, use_pdg=False):
     return data
 
 
-def fold(arr):
+def fold(arr, antiperiodic=False):
     """Fold periodic correlator data."""
+    sign = +1.0
+    if antiperiodic:
+        sign = -1.0
     try:
         _, nt = arr.shape
         t = np.arange(nt)
         front = arr[:, :nt // 2 + 1]
         back = arr[:, (nt - t) % nt][:, :nt // 2 + 1]
-        new_arr = np.mean([front, back], axis=0)
+        new_arr = np.mean([front, sign*back], axis=0)
     except ValueError:
         nt, = arr.shape
         t = np.arange(nt)
         front = arr[:nt // 2 + 1]
         back = arr[(nt - t) % nt][:nt // 2 + 1]
-        new_arr = np.mean([front, back], axis=0)
+        new_arr = np.mean([front, sign*back], axis=0)
     return new_arr
 
 
@@ -327,12 +332,14 @@ def normalization(ns, momentum, current, energy_src, m_snk):
     Bailey et al. "|V_ub| from B->pi l nu decays and (2+1)-flavor lattice QCD",
     [https://arXiv:1503.07839].
     """
+    norm = 1.0
+    if current == 'S-S':
+        return norm
     p_vec = [2.0 * np.pi * float(pj) / ns for pj in momentum.lstrip("p")]
     momentum_factor = {
-        'V1-S': p_vec[0], 'V2-S': p_vec[1], 'V3-S': p_vec[2],
+        'Vi-S': p_vec[0], 'V1-S': p_vec[0], 'V2-S': p_vec[1], 'V3-S': p_vec[2],
         'T14-V4': p_vec[0], 'T24-V4': p_vec[1], 'T34-V4': p_vec[2],
     }
-    norm = 1.0
     if current in momentum_factor:
         norm /= momentum_factor[current]
     # The tensor form factor has an additional kinematic prefactor, which
@@ -369,17 +376,14 @@ class FormFactorDataset(object):
         noise_threshy: float, noise-to-signal ratio for cutting on the data.
             Default is 0.03, i.e., 3 percent.
     """
-    def __init__(self, ds, tags=None, noise_threshy=0.03, sign=None, skip_fastfit=False):
+    def __init__(self, ds, tags=None, noise_threshy=0.03, sign=None, skip_fastfit=False, nt=None):
         self._mass_override = False
         self._sign = sign
         # Start with the three-point function(s).
         # Infer nt from the three-point function in case the two-point
         # functions have been folded about the midpoint.
         ydict = {tag: val for tag, val in ds.items() if isinstance(tag, int)}
-        self.c3 = correlator.ThreePoint(
-            tag=None, ydict=ydict, noise_threshy=noise_threshy
-        )
-        nt = self.c3.times.nt
+        self.c3 = correlator.ThreePoint(tag=None, ydict=ydict, noise_threshy=noise_threshy, nt=nt)
         if tags is None:
             self.tags = Tags(src='light-light', snk='heavy-light')
         else:
@@ -387,7 +391,7 @@ class FormFactorDataset(object):
         self.c2 = {}
         for tag in self.tags:
             self.c2[tag] = correlator.TwoPoint(
-                tag, ds[tag], noise_threshy, nt=nt, skip_fastfit=skip_fastfit
+                tag, ds[tag], noise_threshy, nt=self.c3.times.nt, skip_fastfit=skip_fastfit
             )
         self._verify_tdata()
 
@@ -684,6 +688,88 @@ class FormFactorDataset(object):
         #ax.legend(loc=0)
         return ax
 
+class FormFactorRawData:
+    """
+    Wrapper for raw data associated with form factor analyses, providing simple and consistent
+    access to the "full dataset" as well as bootstrap sampling thereof.
+    Args:
+        data_raw: dict of arrays, the raw correlator data
+        sign: int, sign of the form factor (i.e., in order to make the ratio R positive)
+        binsize: int, the bin/block size. Default is 10
+        shrink_choice: str, the type of shrinkage to use. Default is 'nonlinear'
+        noise_threshy: float, the cut for noisy data
+    """
+    def __init__(self, data_raw, sign, binsize=10, shrink_choice='nonlinear', noise_threshy=0.3, nt=None):
+        self.data_raw = data_raw
+        self.sign = sign
+        self.binsize = binsize
+        self.shrink_choice = shrink_choice
+        self.noise_threshy = noise_threshy
+        self._ds = None
+        self._cov = None
+        self._nconfigs = None
+        self.nt = nt
+
+    @property
+    def ds(self):
+        """The FormFactorDataset of the full dataset."""
+        if self._ds is None:
+            self._ds = wrangle_data(
+                self.data_raw,
+                sign=self.sign,
+                skip_fastfit=True,
+                binsize=self.binsize,
+                shrink_choice=self.shrink_choice,
+                noise_threshy=self.noise_threshy,
+                nt=self.nt)
+        return self._ds
+
+    @property
+    def cov(self):
+        """The frozen covariance matrix of the full dataset."""
+        if self._cov is None:
+            self._cov = gv.evalcov(self.ds)
+        return self._cov
+
+    @property
+    def nconfigs(self):
+        """The number of configurations present."""
+        # if self.is_dict:
+        #     nconfigs = [val.shape[0] for val in self.data.values()]
+        #     return np.unique(nconfigs).item()
+        # return self.data.shape[0]
+
+        if self._nconfigs is None:
+            nconfigs = [val.shape[0] for val in self.data_raw.values()]
+            nconfigs = np.unique(nconfigs).item()
+            self._nconfigs = nconfigs
+        return self._nconfigs
+
+    def bootstrap(self, seed, **bootstrap_kwargs):
+        """
+        A generator for bootstrap samples of the form factor data.
+        Args:
+            seed: int, the seed for the RNG
+            bootstrap_kwargs: kwargs for resample.Bootstrap, usually 'nresample' or 'nensemble'
+        Returns:
+            generator which yields tuples (checksum, FormFactorDataset)
+        """
+        # Bin data (e.g., to combat autocorrelations) before resampling.
+        if self.binsize == 1:
+            data = self.data_raw
+        else:
+            data = {tag: avg_bin(self.data_raw[tag], self.binsize) for tag in self.data_raw}
+        for checksum, draw in resample.Bootstrap(data, seed=seed, **bootstrap_kwargs):
+            # Note: data is already binned before resampling.
+            # No additional binning is needed (and, indeed, would be incorrect).
+            mean = build_dataset(draw, binsize=1, noerror=True)
+            data = FormFactorDataset(
+                gv.gvar(mean, self.cov),
+                sign=self.sign,
+                noise_threshy=self.noise_threshy,
+                skip_fastfit=True,
+                nt=self.nt)
+            yield checksum, data
 
 if __name__ == '__main__':
     main()

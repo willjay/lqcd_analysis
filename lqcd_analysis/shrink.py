@@ -65,6 +65,7 @@ Paper No. 264 (2017).
 # pylint: disable=invalid-name
 import logging
 import numpy as np
+import gvar as gv
 
 LOGGER = logging.getLogger(__name__)
 
@@ -240,6 +241,101 @@ def direct_nl_shrink(sample_ev, n):
     if isDesending:
         dhat = np.flip(dhat, 0)
     return dhat
+
+
+class LinearShrinkage:
+    """
+    Computes the linear shrinkage estimator for a covariance matrix.
+    The original reference is:
+    O. Ledoit and M. Wolf, Journal of Multivariate Analysis 88, 365 (2004).
+    [https://dx.doi.org/https://doi.org/10.1016/S0047-259X(03)00096-4]
+    An accessible review in the context of lattice gauge theory is given by
+    E. Rinaldi et al [https://arxiv.org/pdf/1901.07519.pdf] in Appendix B.
+    """
+    def __init__(self, samples, bstrap=False):
+        """
+        Args:
+            samples: np.ndarray, assumed to be of shape, e.g., "(nconfigs, nt)"
+            bstrap: bool, whether the samples come from bootstrap
+        """
+        self.bstrap = bstrap
+        self.samples = samples
+        self.y = self.normalize()
+        self.lam = self.compute_optimal_shrinkage()
+
+    def __call__(self, lam=None):
+        """
+        Computes the shrinkage estimator for the covariance matrix following
+        Eqs. (B3) and (B7) of [https://arxiv.org/pdf/1901.07519.pdf].
+        Args:
+            lambda: float or None, the shrinkage parameter. Default is None,
+                in which case the estimated optimal value is used.
+        Returns:
+            np.ndarray, the shrinkage estimator for the covariance matrix
+        """
+        mu = 1.0
+        if lam is None:
+            lam = self.lam
+        if (lam < 0) or (lam > 1):
+            raise ValueError("Shrinkage parameter must be in (0, 1)")
+        ds_tmp = gv.dataset.avg_data(self.samples, bstrap=self.bstrap)
+        corr = gv.evalcorr(ds_tmp)
+        errs = np.diag(gv.sdev(ds_tmp))
+        identity = np.eye(len(corr))
+        rho_star = lam*mu*identity + (1 - lam)*corr
+        return errs @ rho_star @ errs
+
+    def normalize(self):
+        """
+        Normalize input data to zero mean and unit standard deviation.
+        """
+        ds_tmp = gv.dataset.avg_data(self.samples, bstrap=self.bstrap)
+        xmean = gv.mean(ds_tmp)
+        xerr = gv.sdev(ds_tmp)
+        return (self.samples - xmean)/xerr
+
+    def _b2(self, rho):
+        """
+        Computes the sum in Eq. (B5) of [https://arxiv.org/pdf/1901.07519.pdf].
+        """
+        n, m = self.y.shape
+        if rho.shape != (m, m):
+            raise ValueError("Incommensurate y and rho", y.shape, rho.shape)
+        result = 0
+        for i in range(n):
+            for alpha in range(m):
+                for beta in range(m):
+                    result += (self.y[i, alpha]*self.y[i, beta] - rho[alpha, beta])**2
+        result /= n**2
+        return result
+
+    def _d2(self, rho, mu=1):
+        """
+        Computes the sum in Eq. (B6) of [https://arxiv.org/pdf/1901.07519.pdf],
+        which is estimates the dispersion of the eigenvalues of the sample
+        correlation matrix.
+        """
+        m, n = rho.shape
+        if m != n:
+            raise ValueError("rho must be square", y.shape)
+        result = 0
+        for alpha in range(m):
+            for beta in range(m):
+                if alpha == beta:
+                    result += (rho[alpha, beta] - mu)**2
+                else:
+                    result += rho[alpha, beta]**2
+        return result
+
+    def compute_optimal_shrinkage(self):
+        """
+        Computes the optimal value for the shrinkage parameter lambda according
+        to Eq. (B4) of [https://arxiv.org/pdf/1901.07519.pdf].
+        """
+        corr = gv.evalcorr(gv.dataset.avg_data(self.samples, bstrap=self.bstrap))
+        b2 = self._b2(corr)
+        d2 = self._d2(corr)
+        return min(b2, d2)/d2
 # pylint: enable=invalid-name
 
 if __name__ == '__main__':

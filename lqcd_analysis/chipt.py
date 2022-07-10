@@ -6,6 +6,7 @@ from abc import abstractmethod
 from collections import namedtuple
 import re
 import numpy as np
+import gvar as gv
 from . import analysis
 
 
@@ -23,6 +24,9 @@ def get_value(dict_list, key):
         value = adict.get(key)
         if value is not None:
             return value
+        value = adict.get(f"log({key})")
+        if value is not None:
+            return np.exp(value)
     raise KeyError(f"Key '{key}' not found within dict_list.")
 
 
@@ -50,8 +54,8 @@ def valid_name(coefficient_name, continuum=False):
         bool, whether the name is valid
     """
     if continuum:
-        return bool(re.match(r"c_([lhE]\d{0,})+", coefficient_name))
-    return bool(re.match(r"c_([lhEa]\d{0,})+", coefficient_name))
+        return bool(re.match(r"c_([lshHE]\d{0,})+", coefficient_name))
+    return bool(re.match(r"c_([lshHEa]\d{0,})+", coefficient_name))
 
 
 def parse_name(coefficient_name):
@@ -64,7 +68,7 @@ def parse_name(coefficient_name):
     Returns:
         list of tuples
     """
-    matches = re.findall(r'[lhEa]\d{0,}', coefficient_name)
+    matches = re.findall(r'[lshHEa]\d{0,}', coefficient_name)
     result = []
     for match in matches:
         power = 1
@@ -74,7 +78,7 @@ def parse_name(coefficient_name):
     return result
 
 
-def analytic_terms(chi, params, continuum=False):
+def analytic_terms(chi, params, continuum=False, order=None):
     """
     Computes the sum of analytic terms. Each term is a product of the form:
     coefficient * (chi_l**m) * (chi_h**n) * (chi_a**p) * (chi_E**q).
@@ -89,12 +93,38 @@ def analytic_terms(chi, params, continuum=False):
     Returns:
         float or array with the result
     """
+    re_log = re.compile(r'^log\((\S+)\)$')
     result = 0.
+    alpha_s = chi['alpha_s']
+    # Approximate ratio v/c for D mesons
+    # See https://arxiv.org/pdf/hep-lat/0610092.pdf, especially discussion around Table III.
+    v_by_c = np.sqrt(0.1)
     for name, value in params.items():
+        # Handle log priors
+        match = re_log.match(name)
+        if match:
+            name, = match.groups()
+            value = np.exp(value)
         if valid_name(name, continuum):
             term = value
+            if order is not None:
+                if order == 'NLO':
+                    # Restrict to these coefficients
+                    if name not in ('c_l', 'c_s', 'c_h', 'c_H', 'c_E', 'c_E2'):
+                        continue
+                elif order == 'NNLO+':
+                    # Take anything but these coefficients
+                    if name in ('c_l', 'c_s', 'c_h', 'c_H', 'c_E', 'c_E2', 'c_a2'):
+                        continue
+                    print("NNLO+", name)
             for subscript, power in parse_name(name):
-                term *= chi[subscript]**power  # Subscript is l, h, a, or E
+                term *= chi[subscript]**power  # Subscript is l, h, H, a, or E
+                if subscript in ('h', ):
+                    # Leading generic and heavy-quark discretization errors begin at
+                    # order alpha_s (a Lamba)^2 and alpha_s (a m_h)**2, respectively.
+                    # See discussion around Eqs (5.15 and 5.16) in
+                    # [https://arxiv.org/pdf/1712.09262.pdf]
+                    term *= (alpha_s * v_by_c)**int(power/2)
             result += term
     return result
 
@@ -161,7 +191,11 @@ def chiral_log_f(x):
     # Since x is positive, region 2 is the complement of region 1.
     # Note: hyperbolic inverse tangent
     region_2 = ~region_1
-    root = np.sqrt(1. - x[region_2]**2.0)
+    try:
+        root = np.sqrt(1. - x[region_2]**2.0)
+    except ZeroDivisionError:
+        eps = 1e-6
+        root = np.sqrt(1. + eps - x[region_2]**2.0)
     result[region_2] = root * np.arctanh(root)
     return result
 
@@ -198,7 +232,7 @@ def residue_r(mass, mu, j):
     mass2hat = np.delete(mass2, idx_j)  # mass2 but without the jth element
     upper = np.product(mu2 - mass2[idx_j])
     lower = np.product(mass2hat - mass2[idx_j])
-    if np.isclose(lower, 0., rtol=1e-6):
+    if np.isclose(gv.mean(lower), 0., rtol=1e-6):
         raise ValueError(f"Singular residue_R with j={j}")
     return upper / lower
 
@@ -243,7 +277,8 @@ def taste_average_j1sub(pions, delta, lam):
     return taste_average(chiral_log_j1sub, pions, delta, lam)
 
 
-def form_factor_tree_level(gpi, fpi, energy, delta, self_energy=0.):
+# def form_factor_tree_level(phi, gpi, fpi, energy, delta, self_energy=0., form_factor_name='f_perp'):
+def form_factor_tree_level(c_leading, energy, delta, self_energy=0., form_factor_name='f_perp'):
     """
     Computes the tree-level expression for the form factor.
 
@@ -276,7 +311,17 @@ def form_factor_tree_level(gpi, fpi, energy, delta, self_energy=0.):
     with _dimensionful_ fit parameters C_i. The "Chi_i" factors are always
     dimensionless in the literature.
     """
-    return gpi / (fpi * (energy + delta + self_energy))
+    # return gpi / (fpi * (energy + delta + self_energy))
+    if form_factor_name in ('f_perp', 'f_parallel', 'f_0'):
+        # In physical terms, the leading constant c_leading = phi * g / fpi
+        # return (phi * gpi) / (fpi * (energy + delta + self_energy))
+        return c_leading / (energy + delta + self_energy)
+    # elif form_factor_name == 'f_parallel':
+    #     return phi / fpi
+    elif form_factor_name == 'f_T':
+        raise NotImplementedError(f"{form_factor_name} not implemented yet")
+    else:
+        raise ValueError("Unrecognized form_factor_name {form_factor_name}")
 
 
 class StaggeredPions:
@@ -384,8 +429,7 @@ class ChiralExpansionParameters:
     """
     Wrapper class for the dimensionless chiral expansion parameters "chi."
     Args:
-        x, params: dicts with keys 'm_light', 'm_heavy', 'E', 'mu', 'fpi', and
-        'DeltaBar'
+        x, params: dicts with keys 'm_light', 'm_heavy', 'E', 'mu', 'fpi', and 'DeltaBar'
     """
 
     def __init__(self, x, params):
@@ -394,7 +438,8 @@ class ChiralExpansionParameters:
         self._validate()
 
     def _validate(self):
-        keys = ['m_light', 'm_heavy', 'E', 'mu', 'fpi', 'DeltaBar']
+        # keys = ['m_light', 'm_strange', 'm_heavy', 'dm_heavy', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
+        keys = ['m_light', 'm_strange', 'm_heavy', 'dMH2', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
         for key in keys:
             test = (int(key in self.x) + int(key in self.params))
             if test == 1:
@@ -419,19 +464,47 @@ class ChiralExpansionParameters:
         mu = self._get('mu')
         fpi = self._get('fpi')
         m_light = self._get('m_light')
-        return 3. * (2. * mu * m_light) / (8. * np.pi**2. * fpi**2.)
+        return (2. * mu * m_light) / (8. * np.pi**2. * fpi**2.)
 
     @property
-    def heavy(self):
+    def strange(self):
         """
-        Computes the dimenionless expansion parameter defined in Eq (3.23) of
+        Computes a dimensionless expansion parameter for use with the strange quark.
+        This term is similar to those of defined in Eq (3.22) or (3.23) of
         [https://arxiv.org/abs/1509.06235], J. Bailey et al., PRD 93, 025026
         (2016) "B -> Kl+l− decay form factors from three-flavor lattice QCD."
         """
         mu = self._get('mu')
         fpi = self._get('fpi')
+        m_strange = self._get('m_strange')
+        return 2. * mu * m_strange / (8. * np.pi**2. * fpi**2.)
+
+    @property
+    def heavy(self):
+        """
+        Computes the expansion parameter "x_h" for HQET discretization errors
+        defined in the text preceding
+        Eq. (5.14) of
+        [https://arxiv.org/abs/1712.09262] A. Bazavov et al., PRD 98 (2018) 7, 074512
+        "B- and D-meson leptonic decay constants from four-flavor lattice QCD".
+        """
         m_heavy = self._get('m_heavy')
-        return 2. * mu * m_heavy / (8. * np.pi**2. * fpi**2.)
+        return 2. * m_heavy / np.pi
+
+    @property
+    def dheavy(self):
+        """
+        Computes a dimenionless expansion parameter in the mistuning of the
+        heavy quark mass, similar to the one defined in Eq (3.23) of
+        [https://arxiv.org/abs/1509.06235], J. Bailey et al., PRD 93, 025026
+        (2016) "B -> Kl+l− decay form factors from three-flavor lattice QCD."
+        """
+        # mu = self._get('mu')
+        fpi = self._get('fpi')
+        # dm_heavy = self._get('dm_heavy')
+        # return 2. * mu * dm_heavy / (8. * np.pi**2. * fpi**2.)
+        dMH2 = self._get('dMH2')
+        return dMH2 / (8. * np.pi**2. * fpi**2.)
 
     @property
     def energy(self):
@@ -458,21 +531,29 @@ class ChiralExpansionParameters:
     def __getitem__(self, key):
         if key in ('l', 'light'):
             return self.light
+        if key in ('s', 'strange'):
+            return self.strange
         if key in ('h', 'heavy'):
             return self.heavy
+        if key in ('H', 'dheavy'):
+            return self.dheavy
         if key in ('E', 'energy'):
             return self.energy
         if key == 'a2':
             return self.a2
         if key == 'a':
             return np.sqrt(self.a2)
+        if key == 'alpha_s':
+            return self._get('alpha_s')
         raise KeyError(f"Invalid key: {key}")
 
     def __str__(self):
         return (
             f"ChiralExpansionParamters(\n"
             f"    chi_light  = {self.light}\n"
+            f"    chi_strange = {self.strange}\n"
             f"    chi_heavy  = {self.heavy}\n"
+            f"    chi_dheavy = {self.dheavy}\n"
             f"    chi_a2     = {self.a2}\n"
             f"    chi_energy = {self.energy})"
         )
@@ -503,57 +584,6 @@ class Scale:
             f"dim={self.dim}, "
             f"scale_factor={self.scale_factor})"
         )
-
-
-class FormFactorData:
-    """
-    Wrapper class for form factor data.
-    """
-
-    def __init__(self, ydata, name, ns, quark_masses):
-        self.ydata = ydata
-        self.name = name
-        self.ns = ns
-        self.quark_masses = quark_masses
-
-    def __str__(self):
-        return (
-            "FormFactorData("
-            f"name='{self.name}', "
-            f"ns={self.ns}, "
-            f"mq={self.quark_masses})"
-        )
-
-    def unpackage_quark_masses(self):
-        """
-        Unpackages a pair of quark masses associated with the daughter meson (a
-        K or pi). When the daughter is a pion, the masses are equal, and we set
-        m_heavy to zero, since the chiral fit should NOT include any analytic
-        dependence on the heavy "strange quark mass."
-        """
-        (m_light, m_spectator) = np.sort(self.quark_masses)
-        if m_spectator == m_light:
-            m_spectator = 0.
-        return m_light, m_spectator
-
-    def unpackage_ydata(self, m_daughter):
-        """
-        Unpackages ydata stored as a dict into arrays of x and y data.
-        Example: ydata = {'p000': value0, 'p100': value1, ...}
-        Args:
-            m_daughter: float, mass of the daughter K/pi
-        Returns:
-            x,y : (boosted energy of the daughter, form factor values)
-        """
-        y = np.zeros(len(self.ydata), dtype=object)
-        x = np.zeros(len(self.ydata), dtype=object)
-        for idx, (ptag, form_factor) in enumerate(self.ydata.items()):
-            p2 = analysis.p2(ptag, self.ns)
-            energy = np.sqrt(m_daughter**2. + p2)
-            y[idx] = form_factor
-            x[idx] = energy
-        idxs = np.argsort(x)
-        return x[idxs], y[idxs]
 
 
 class ChiralModel:
@@ -603,3 +633,94 @@ class ChiralModel:
             f"Lambda_UV={np.round(self.lam, decimals=4)}; "
             f"continuum={self.continuum})"
         )
+
+class LogLessModel(ChiralModel):
+    """
+    Base model for log-less description of form factors.
+
+    Sometimes fits to functions from proper effective theory have the feature that contributions from chiral
+    logarithms are numerically small. This observation motivates one to consider a model which simply neglects
+    any non-analytic functions, supposing that the full behavior can be captured by analytic terms. This treatment
+    is probably only reasonable for chiral interpolations (and NOT extrapolations). For interpolation, one might be
+    able to expand:
+    m = m0 + dm
+    m*log(m)
+        = (m0+dm)*log(m0+dm)
+        = m0*log(m0) + (1+log(m0))*dm + dm^2 / (2m0) + ...
+        = c0 + c1*dm + c2*dm^2 + ...
+    """
+
+    def __init__(self, form_factor_name, process, lam, continuum=False):
+        super().__init__(form_factor_name, process, lam, continuum)
+        self.model_type = 'BaseSU2Model'
+
+    def model(self, *args):
+        """
+        Compute the model functions
+        Args:
+            Accepts either a single positional argument 'params' or two
+            positional arguments ('x', 'params'). This non-standard interface
+            is designed to work well with lsqfit.nonlinear_fit, which accepts
+            functions with either interface, depending on whether or not the
+            "independent data" have errors.
+        Returns:
+            array with form factor data
+        """
+        # Unpackage x, params
+        if len(args) not in (1, 2):
+            raise TypeError(
+                "Please specify either (x, params) or params as arguments."
+            )
+        x, params = args if len(args) == 2 else ({}, args[0])
+        dict_list = [x, params]
+
+        # Extract values from inputs
+        leading = get_value(dict_list, 'leading')
+        energy = get_value(dict_list, 'E')
+        delta = get_value(dict_list, 'delta_pole')
+        sigma = 0  # Take the self energy to vanish
+
+        # Get the analytic terms
+        chi = ChiralExpansionParameters(x, params)
+        analytic = analytic_terms(chi, params, self.continuum)
+
+        # Leading-order x (corrections )
+        name = self.form_factor_name
+        tree = form_factor_tree_level(leading, energy, delta, sigma, name)
+        return tree * (1 + analytic)
+
+    def breakdown(self, *args):
+        # Unpackage x, params
+        if len(args) not in (1, 2):
+            raise TypeError(
+                "Please specify either (x, params) or params as arguments."
+            )
+        x, params = args if len(args) == 2 else ({}, args[0])
+        dict_list = [x, params]
+
+        # Extract values from inputs
+        leading = get_value(dict_list, 'leading')
+        energy = get_value(dict_list, 'E')
+        delta = get_value(dict_list, 'delta_pole')
+        sigma = 0  # Take the self energy to vanish
+
+        # Get the analytic terms
+        chi = ChiralExpansionParameters(x, params)
+        analytic = analytic_terms(chi, params, self.continuum)
+        analytic_nlo = analytic_terms(chi, params, self.continuum, order='NLO')
+        analytic_nnlo = analytic_terms(chi, params, self.continuum, order='NNLO+')
+
+        # Leading-order x (corrections )
+        name = self.form_factor_name
+        tree = form_factor_tree_level(leading, energy, delta, sigma, name)
+        # return tree * (1 + analytic)
+        return {
+            'tree': tree,
+            'NLO_log_corrections': 0,
+            'NLO_analytic_corrections': tree * analytic_nlo,
+            'full_analtyic_corrections': tree * analytic,
+            'LO': tree,
+            'NLO': tree * analytic_nlo,
+            'NNLO': tree * analytic_nnlo,
+            'self_energy': 0,
+        }

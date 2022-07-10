@@ -10,9 +10,10 @@ class BaseSU3Model(chipt.ChiralModel):
     Base model for SU(3) EFT description of form factors.
     """
 
-    def __init__(self, form_factor_name, process, lam, continuum=False):
+    def __init__(self, form_factor_name, process, lam, continuum=False, continuum_logs=False):
         super().__init__(form_factor_name, process, lam, continuum)
         self.model_type = 'BaseSU3Model'
+        self.continuum_logs = continuum_logs
 
     def model(self, *args):
         """
@@ -34,16 +35,17 @@ class BaseSU3Model(chipt.ChiralModel):
         x, params = args if len(args) == 2 else ({}, args[0])
         dict_list = [x, params]
         # Extract values from inputs
-        c_0 = chipt.get_value(dict_list, 'c0')
+        leading = chipt.get_value(dict_list, 'leading')
+        # c_0 = chipt.get_value(dict_list, 'c0')
         gpi = chipt.get_value(dict_list, 'g')
         fpi = chipt.get_value(dict_list, 'fpi')
         energy = chipt.get_value(dict_list, 'E')
         delta = chipt.get_value(dict_list, 'delta_pole')
         # Collect Goldstone bosons: pions, kaons, and "strangeons"
         goldstones = chipt.GoldstoneBosons(
-            chipt.StaggeredPions(x, params, 'mpi5', self.continuum),
-            chipt.StaggeredPions(x, params, 'mK5', self.continuum),
-            chipt.StaggeredPions(x, params, 'mS5', self.continuum))
+            chipt.StaggeredPions(x, params, 'mpi5', (self.continuum or self.continuum_logs)),
+            chipt.StaggeredPions(x, params, 'mK5', (self.continuum or self.continuum_logs)),
+            chipt.StaggeredPions(x, params, 'mS5', (self.continuum or self.continuum_logs)))
         # Get the chiral logarithms
         logs = self.delta_logs(fpi, gpi, goldstones)
         sigma = self.self_energy()
@@ -51,8 +53,53 @@ class BaseSU3Model(chipt.ChiralModel):
         chi = chipt.ChiralExpansionParameters(x, params)
         analytic = chipt.analytic_terms(chi, params, self.continuum)
         # Leading-order x (corrections )
-        return chipt.form_factor_tree_level(gpi, fpi, energy, delta, sigma)\
-            * (c_0 * (1 + logs) + analytic)
+        name = self.form_factor_name
+        tree = chipt.form_factor_tree_level(leading, energy, delta, sigma, name)
+        return tree * (1 + logs + analytic)
+        # return chipt.form_factor_tree_level(gpi, fpi, energy, delta, sigma)\
+        #     * (c_0 * (1 + logs) + analytic)
+
+    def breakdown(self, *args):
+        # Unpackage x, params
+        if len(args) not in (1, 2):
+            raise TypeError(
+                "Please specify either (x, params) or params as arguments."
+            )
+        x, params = args if len(args) == 2 else ({}, args[0])
+        dict_list = [x, params]
+        # Extract values from inputs
+        leading = chipt.get_value(dict_list, 'leading')
+        # c_0 = chipt.get_value(dict_list, 'c0')
+        gpi = chipt.get_value(dict_list, 'g')
+        fpi = chipt.get_value(dict_list, 'fpi')
+        energy = chipt.get_value(dict_list, 'E')
+        delta = chipt.get_value(dict_list, 'delta_pole')
+        # Collect Goldstone bosons: pions, kaons, and "strangeons"
+        goldstones = chipt.GoldstoneBosons(
+            chipt.StaggeredPions(x, params, 'mpi5', (self.continuum or self.continuum_logs)),
+            chipt.StaggeredPions(x, params, 'mK5', (self.continuum or self.continuum_logs)),
+            chipt.StaggeredPions(x, params, 'mS5', (self.continuum or self.continuum_logs)))
+        # Get the chiral logarithms
+        logs = self.delta_logs(fpi, gpi, goldstones)
+        sigma = self.self_energy()
+        # Get the analytic terms
+        chi = chipt.ChiralExpansionParameters(x, params)
+        analytic = chipt.analytic_terms(chi, params, self.continuum)
+        analytic_nlo = chipt.analytic_terms(chi, params, self.continuum, order='NLO')
+        analytic_nnlo = chipt.analytic_terms(chi, params, self.continuum, order='NNLO+')        
+        # Leading-order x (corrections )
+        name = self.form_factor_name
+        tree = chipt.form_factor_tree_level(leading, energy, delta, sigma, name)
+        return {
+            'tree': tree,
+            'NLO_log_corrections': tree * logs,
+            'NLO_analytic_corrections': tree * analytic_nlo,
+            'full_analytic_corrections': tree * analytic,
+            'LO': tree,
+            'NLO': tree * (logs + analytic_nlo),
+            'NNLO': tree * analytic_nnlo,
+            'self_energy': self.self_energy(),
+        }
 
 
 class HardSU3Model(BaseSU3Model):
@@ -60,8 +107,8 @@ class HardSU3Model(BaseSU3Model):
     Model for form factor in hard SU(3) EFT.
     """
 
-    def __init__(self, form_factor_name, process, lam, continuum=False):
-        super().__init__(form_factor_name, process, lam, continuum)
+    def __init__(self, form_factor_name, process, lam, continuum=False, continuum_logs=False):
+        super().__init__(form_factor_name, process, lam, continuum, continuum_logs)
         self.model_type = "HardSU3Model"
 
     def delta_logs(self, fpi, gpi, goldstones):
@@ -273,14 +320,18 @@ class HardSU3Model(BaseSU3Model):
             - chipt.chiral_log_i1(meta_scalar, self.lam)
         )
         # Vector pion and eta terms
-        result += coefficients['vector'] * self._residue_combo(
-            mass=[pions.m_v, pions.meta_v, strangeons.metaprime_v],
-            mu=strangeons.m_v)
+        if not self.continuum:
+            # These terms vanish identically in the continuum
+            result += coefficients['vector'] * self._residue_combo(
+                mass=[pions.m_v, pions.meta_v, strangeons.metaprime_v],
+                mu=strangeons.m_v)
 
         # Axial pion and eta terms
-        result += coefficients['axial'] * self._residue_combo(
-            mass=[pions.m_a, pions.meta_a, strangeons.metaprime_a],
-            mu=strangeons.m_a)
+        if not self.continuum:
+            # These terms vanish identically in the continuum
+            result += coefficients['axial'] * self._residue_combo(
+                mass=[pions.m_a, pions.meta_a, strangeons.metaprime_a],
+                mu=strangeons.m_a)
         # Normalization
         result *= coefficients['normalization']
         return result
@@ -296,11 +347,17 @@ class HardSU3Model(BaseSU3Model):
             float, the value of the chiral logarithm
         """
         g2 = gpi**2.
+        if self.continuum:
+            hairpin_v = 0
+            hairpin_a = 0
+        else:
+            hairpin_v = goldstones.pions['Hairpin_V']
+            hairpin_a = goldstones.pions['Hairpin_A']
         cofficients = {
             'taste-averaged': -(1. + 3. * g2) / 2.,
             'scalar': (1. + 3. * g2) / 12.,
-            'vector': 1.5 * (1. + g2) * goldstones.pions['Hairpin_V'],
-            'axial': 1.5 * (1. + g2) * goldstones.pions['Hairpin_A'],
+            'vector': 1.5 * (1. + g2) * hairpin_v,
+            'axial': 1.5 * (1. + g2) * hairpin_a,
             'normalization': 1 / (4. * np.pi * fpi)**2.,
         }
         return self._log_b2pi(goldstones, cofficients)
@@ -316,11 +373,17 @@ class HardSU3Model(BaseSU3Model):
             float, the value of the chiral logarithm
         """
         g2 = gpi**2.
+        if self.continuum:
+            hairpin_v = 0
+            hairpin_a = 0
+        else:
+            hairpin_v = goldstones.pions['Hairpin_V']
+            hairpin_a = goldstones.pions['Hairpin_A']
         cofficients = {
             'taste-averaged': -(1. + 3. * g2) / 2.,
             'scalar': (1. + 3. * g2) / 12.,
-            'vector': (1. + 3. * g2) / 2. * goldstones.pions['Hairpin_V'],
-            'axial': (1. + 3. * g2) / 2. * goldstones.pions['Hairpin_A'],
+            'vector': (1. + 3. * g2) / 2. * hairpin_v,
+            'axial': (1. + 3. * g2) / 2. * hairpin_a,
             'normalization': 1 / (4. * np.pi * fpi)**2.,
         }
         return self._log_b2pi(goldstones, cofficients)

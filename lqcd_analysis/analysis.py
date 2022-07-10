@@ -7,6 +7,8 @@ import collections
 import numpy as np
 import gvar as gv
 import corrfitter as cf
+import lsqfit
+from numpy.core.numeric import full
 from . import models
 from . import correlator
 from . import dataset
@@ -16,9 +18,8 @@ from . import serialize
 
 LOGGER = logging.getLogger(__name__)
 
-Nstates = collections.namedtuple(
-    'NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0)
-)
+Nstates = collections.namedtuple('NStates', ['n', 'no', 'm', 'mo'], defaults=(1, 0, 0, 0))
+
 def _abs(val):
     return val * np.sign(val)
 
@@ -68,6 +69,26 @@ def delta_continuum_dispersion(ea, pa2, ma, alpha_v):
     return 0
 
 
+def delta_continuum_overlap(overlap_moving, pa2, overlap_zero, alpha_v):
+    """
+    Hadron-to-vacuum overlap factors "<vacuum|operator|hadron>" are expected to be independent
+    of the hadron momentum, at least up to lattice artifacts of order alpha (ap)^2. Let the overlap
+    factor for a hadron "H" of momentum "p" be denoted as <0|O|H(p)> = Overlap(p). Then we expect:
+    | 1 - Overlap(p=0) / Overlap(p) | < Order(alpha_v (ap)^2).
+    To quantify how well this inequality is satisfied, divide both sides by the
+    RHS to obtain a test statistic which we call delta:
+    delta = | 1 - Overlap(p=0) / Overlap(p) | / (alpha_v (ap)^2)).
+    Continuum-like results should typically satisfy
+    (delta < 1) or perhaps (delta < 2).
+    The utility of this quantity, is that it provides an easy cut for rejecting fits.
+    """
+    if pa2 > 0:
+        ratio = gv.mean(overlap_zero / overlap_moving)
+        delta = np.abs(ratio - 1) / (alpha_v * pa2)
+        return gv.mean(delta)
+    return 0
+
+
 def count_nstates(params, key_map=None, tags=None):
     """
     Count the number of states used in fit.
@@ -88,7 +109,7 @@ def count_nstates(params, key_map=None, tags=None):
 
 
 def get_two_point_model(two_point, osc=True):
-
+    """Gets a model for a 2pt function."""
     tag = two_point.tag
     a_pnames = (f'{tag}:a', f'{tag}:ao')
     b_pnames = (f'{tag}:a', f'{tag}:ao')
@@ -114,8 +135,8 @@ def get_two_point_model(two_point, osc=True):
     return model
 
 
-def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None,
-                          pedestal=None, constrain=False):
+def get_three_point_model(t_snk, tfit, tdata, nstates, tags=None, pedestal=None, constrain=False):
+    """Gets a model for a 3pt function."""
     if tags is None:
         tags = dataset.Tags(src='light-light', snk='heavy-light')
     src = tags.src
@@ -268,28 +289,40 @@ class TwoPointAnalysis(object):
         model = get_two_point_model(self.c2, bool(nstates.no))
         self.fitter = cf.CorrFitter(models=model)
         data = {self.tag: self.c2}
-        fit = self.fitter.lsqfit(
-            data=data, prior=prior, p0=prior.p0, **fitter_kwargs
-        )
+        fit = self.fitter.lsqfit(data=data, prior=prior, p0=prior.p0, **fitter_kwargs)
         fit = serialize.SerializableNonlinearFit(fit)
         self._fit = fit
         if fit.failed:
             fit = None
         return fit
 
-    def serialize(self, rawtext=True):
+    def serialize(self, rawtext=True, full_precision=False):
+        """
+        rawtext: bool, whether to convert gvars to str. Default is True.
+        full_precision: bool, whether or not to keep all digits for the mean values of the
+            ground-state parameters 'energy' and 'amp'. Useful for bootstrap, where only the central
+            values are needed keeping all digits is desirable. Default is False.
+        """
         payload = self._fit.serialize(rawtext)
         payload['tmin'] = self.c2.times.tmin
         payload['tmax'] = self.c2.times.tmax
         payload['n_decay'] = self._nstates.n
         payload['n_oscillating'] = self._nstates.no
-        payload['energy'] = self._fit.p[f"{self.tag}:dE"][0]
-        payload['amp'] = self._fit.p[f"{self.tag}:a"][0]
+        energy = self._fit.p[f"{self.tag}:dE"][0]
+        amp = self._fit.p[f"{self.tag}:a"][0]
+        if full_precision:
+            energy = gv.mean(energy)
+            amp = gv.mean(energy)
+        payload['energy'] = energy
+        payload['amp'] = amp
+        if rawtext:
+            payload['energy'] = str(payload['energy'])
+            payload['amp'] = str(payload['amp'])
         return payload
 
 
 class FormFactorAnalysis(object):
-
+    """Class for extracting form factors from joint fits to 2pt and 3pt functions."""
     def __init__(self, ds, positive_ff=True):
 
         self.ds = ds
@@ -412,21 +445,21 @@ class FormFactorAnalysis(object):
         fitter_kwargs['prior'] = prior
 
         # Handle models
-        models = []
+        models_list = []
         for tag in self.ds:
-            model = get_model(self.ds, tag, nstates,self.pedestal, constrain)
+            model = get_model(self.ds, tag, nstates, self.pedestal, constrain)
             if model is not None:
-                models.append(model)
+                models_list.append(model)
 
         # Abort if too few models found
-        if len(models) != len(set(self.ds.keys())):
+        if len(models_list) != len(set(self.ds.keys())):
             self.fitter = None
             fit = None
             LOGGER.warning('Insufficient models found. Skipping joint fit.')
             return
 
         # Run fit
-        self.fitter = cf.CorrFitter(models=models)
+        self.fitter = cf.CorrFitter(models=models_list)
         if chain:
             _lsqfit = self.fitter.chained_lsqfit
         else:
@@ -453,9 +486,10 @@ class FormFactorAnalysis(object):
             vnn = fit.p['Vnn'][0, 0]
         self.r = convert_vnn_to_ratio(self.m_src, vnn)
 
-    def serialize(self, rawtext=True):
+    def serialize(self, rawtext=True, prior_alias='standard prior', means_only=False):
+        """Converts the result to a dictionary suitable for database I/O."""
         sanitize = str if rawtext else lambda x: x
-        payload = self.fits['full'].serialize(rawtext)
+        payload = self.fits['full'].serialize(rawtext=rawtext, means_only=means_only)
         payload['tmin_ll'] = self.ds[self.ds.tags.src].times.tmin
         payload['tmin_hl'] = self.ds[self.ds.tags.snk].times.tmin
         payload['tmax_ll'] = self.ds[self.ds.tags.src].times.tmax
@@ -463,7 +497,7 @@ class FormFactorAnalysis(object):
         payload['r'] = sanitize(self.r)
         payload['r_guess'] = self.ds.r_guess
         payload['is_sane'] = self.is_sane
-        payload['prior_alias'] = 'standard prior'
+        payload['prior_alias'] = prior_alias
         payload['pedestal'] = self.pedestal
         # Infer nstates
         nstates = count_nstates(self.fits['full'].p)
@@ -494,70 +528,292 @@ class FormFactorAnalysis(object):
         nstates = count_nstates(fit.p)
         return figures.plot_comparison(nstates, fit.prior, fit.p, a_fm)
 
-class RatioAnalysis(object):
+def ratio_model(x, p):
+    """
+    The model function for the ratio Rbar(t, T).
+    Args:
+        x: dict, the independent data. {T: <times for T>}
+        p: dict, the fit parameters.
+    Returns:
+        y: dict, the model evaluated for each sink time T. {T: <model at T given x, p>}
 
-    def __init__(self, ds, nstates, restrict=None):
+    Notes:
+    ------
+    In the asymptotic regime where T is very large, and 1 << t << T, this ratio is designed to
+    approach a plateau which is related to the value of a transition matrix element / form
+    factor. Roughly speaking, the model has the form:
+    y(t,T)
+        = plateau / (1 + A_src * exp(-E_src*t)) / (1 + A_snk * exp(-E_snk*(T-t)))
+        ~= platau * (1 - A_src * exp(-E_src*t) - A_snk * exp(-E_snk*(T-t)))
+    In other words, there is exponential decay toward the plateau from t and from (T-t).
+    Although we've written the equation for a single decay channel from the source and sink,
+    the full model optionally includes a full tower of states on either side.
+
+    One can also imagine using this model in a region where contributions from, say, the source
+    are neglibile. In this case, one should simply omit the relevant fit parameters, e.g., using
+    p = {'plateau': <value>, 'A:snk': <some list>, 'dE:snk': <some list>}
+    """
+    y = {}
+    for t_snk, t in x.items():
+        try:
+            int(t_snk)
+        except ValueError:
+            raise ValueError(f"Invalid sink time T. Found T={t_snk}")
+
+        # Make space
+        y[t_snk] = np.ones(len(t), dtype=object)
+        denom_src = np.ones(len(t), dtype=object)
+        denom_snk = np.ones(len(t), dtype=object)
+
+        # Include tower of states from the source, if necessary parameters are present
+        # if ('A:src' in p) and ('dE:src' in p):
+        for amp, energy in zip(p['src:A'], np.cumsum(p['src:dE'])):
+            denom_src += amp*np.exp(-energy*t)
+
+        # Include tower of states from the sink, if necessary parameters are present
+        # if ('A:snk' in p) and ('dE:snk' in p):
+        for amp, energy in zip(p['snk:A'], np.cumsum(p['snk:dE'])):
+            denom_snk += amp*np.exp(-energy*(t_snk-t))
+
+        y[t_snk] *= p['plateau'] / denom_src / denom_snk
+
+    return y
+
+class RatioAnalysis:
+    """
+    A fitter class for direct analysis of "Rbar", the ratio of 3pt and 2pt functions which plateaus
+    to give transition matrix elements / form factors.
+    """
+    def __init__(self, ds, correlated=True):
         self.ds = ds
-        self.n = nstates.n
-        self.m = nstates.m
-        self.restrict = restrict
-        assert False, "RatioAnalysis is not debugged. Use with care!"
+        self.correlated = correlated
+        self._fit = None
 
-    @property
-    def t_snks(self):
-        if self.restrict is None:
-            return self.ds.t_snks
-        else:
-            return [t_snk for t_snk in self.ds.t_snks if t_snk in self.restrict]
-
-    @property
-    def tfit(self):
-        return self.ds.tfit
-
-    def model(self, t, t_snk, params):
-
-        r = params['r']
-        ans = r
-        if self.n > 0:
-            for ai, dEi in zip(params['amp_src'], np.cumsum(params['dE_src'])):
-                ans = ans - ai * np.exp(-dEi * t)
-        if self.m > 0:
-            for ai, dEi in zip(params['amp_snk'], np.cumsum(params['dE_snk'])):
-                ans = ans - ai * np.exp(-dEi * (t_snk - t))
-        return ans
-
-    def fitfcn(self, params):
-        ans = {}
-        for t_snk in self.t_snks:
-            tfit = self.tfit[t_snk]
-            ans[t_snk] = self.model(tfit, t_snk , params)
-        return ans
-
-    def buildy(self):
+    def build_xy(self, tmin_src, tmin_snk, t_step=1):
+        """
+        Builds the "x" and "y" data for a fit.
+        Args:
+            tmin_src: int, the minumum time separation from the source
+            tmin_snk: int, the minumum time separation from the sink
+            t_step: int, the number of steps to take between points
+        Returns:
+            x, y: dicts of the form {T: <values for sink time T>}
+        Notes:
+        ------
+        Suppose that data exist for t = [0, 1, 2, 3, ..., T-2, T-1, T].
+        Let start = tmin_src
+            stop = T+1-stmin_snk
+            step = t_step
+        Using standard slice notation, this function restricts to t values "t[start:stop:step]".
+        """
         y = {}
-        for t_snk in self.ds.rbar:
-            x = self.tfit[t_snk]
-            y[t_snk] = self.ds.rbar[t_snk][x]
-        return y
+        rbar = self.ds.rbar
+        for t_snk in rbar:
+            y[t_snk] = rbar[t_snk][tmin_src:t_snk+1-tmin_snk:t_step]
+            y[t_snk] *= np.sign(y[t_snk])
+        x = {t_snk: np.arange(tmin_src, t_snk+1-tmin_snk, t_step) for t_snk in y}
+        return x, y
 
-    def buildprior(self):
-        r_guess = self.ds.r_guess
-        prior = {'log(r)': np.log(gv.gvar(r_guess, 0.1 * r_guess))}
-        if self.n > 0:
-            prior['amp_src'] = [gv.gvar("1.0(1.0)") for _ in np.arange(self.n)]
-            prior['log(dE_src)'] = [np.log(gv.gvar("0.5(0.5)")) for _ in np.arange(self.n)]
-        if self.m > 0:
-            prior['amp_snk'] = [gv.gvar("1.0(1.0)") for _ in np.arange(self.m)]
-            prior['log(dE_snk)'] = [np.log(gv.gvar("0.5(0.5)")) for _ in np.arange(self.m)]
+    def build_prior(self, n_decay, m_decay):
+        """
+        Builds a priors with possible keys 'prior', 'A:src', 'dE:src', 'A:snk', 'dE:snk'
+        Args:
+            n_decay: int, the number of states to include at the source (must be positive or zero)
+            m_decay: int, the number of states to include at the sink (must be positive or zero)
+        Returns:
+            prior: dict
+        """
+        if n_decay < 0:
+            raise ValueError("Need n_decay >= 0")
+        if m_decay < 0:
+            raise ValueError("Need m_decay >= 0")
+
+        # TODO: Abstract these loose but hard-coded priors to something more physical
+
+        # The general splitting should be some generic small(ish) energy
+        splitting = "0.5(5)"
+
+        # The first splitting from the source, however, is large since there's an O(Lambda_QCD)
+        # energy difference between the mass of a (pseudo-)Goldstone boson and excited states.
+        src_base = "0.75(50)"
+
+        # Take the amplitudes to be O(1) numbers
+        src_amp = "1.0(10.0)"
+        snk_amp = "1.0(10.0)"
+        try:
+            # Use a guess for the plateau, with large uncertainty
+            r_guess = self.ds.r_guess
+            r_guess = np.sign(r_guess) * r_guess
+            plateau = gv.gvar(r_guess, 0.5*r_guess)
+        except:
+            plateau = gv.gvar("0.1(0.05)")
+
+        # Assemble the prior
+        prior = {}
+        if n_decay > 0:
+            prior['log(src:A)'] = [np.log(gv.gvar(src_amp)) for _ in range(n_decay)]
+            prior['log(src:dE)'] = [np.log(gv.gvar(src_base))] +\
+                                   [np.log(gv.gvar(splitting)) for _ in range(n_decay-1)]
+        if m_decay > 0:
+            prior['log(snk:A)'] = [np.log(gv.gvar(snk_amp)) for _ in range(m_decay)]
+            prior['log(snk:dE)'] = [np.log(gv.gvar(splitting)) for _ in range(m_decay)]
+        prior['plateau'] = plateau
         return prior
 
-    def lsqfit(self, **fitter_kwargs):
-
-        y = self.buildy()
-        if fitter_kwargs.get("prior") is None:
-            fitter_kwargs["prior"] = self.buildprior()
-        fit = lsqfit.nonlinear_fit(data=y, fcn=self.fitfcn, **fitter_kwargs)
-        if np.isnan(fit.chi2) or np.isinf(fit.chi2):
-            LOGGER.warning('Full joint fit failed.')
-            fit = None
+    def __call__(self, nstates, times, **fitter_kwargs):
+        """ Run the fit. """
+        x, y = self.build_xy(times.tmin_src, times.tmin_snk, times.t_step)
+        prior = self.build_prior(nstates.n, nstates.m)
+        if self.correlated:
+            fit = lsqfit.nonlinear_fit(data=(x, y), fcn=ratio_model, prior=prior, **fitter_kwargs)
+        else:
+            fit = lsqfit.nonlinear_fit(udata=(x, y), fcn=ratio_model, prior=prior, **fitter_kwargs)
+        fit = serialize.SerializableRatioAnalysis(fit, nstates, times, self.ds.m_src, self.ds.m_snk)
+        self._fit = fit
         return fit
+
+class SequentialFitResult:
+    def __init__(self):
+        self.src = None
+        self.snk = None
+        self.ratio = None
+        self.direct = None
+
+    def __iter__(self):
+        for fit in [self.src, self.snk, self.ratio, self.direct]:
+            yield fit
+
+    def asdict(self):
+        return self.__dict__
+
+
+class SequentialFitter:
+    """
+    Run a sequential set of fits in order to determine a matrix element / form factor.
+    Args:
+        data: dataset.FormFactorDataset
+        a_fm: approximate lattice spacing in fm
+    Notes:
+    ------
+    The sequence of fits is
+        1) Fit the "source" 2pt function
+        2) Fit the "sink" 2pt function
+        3) Fit the ratio Rbar of 3pt and 2pt function
+        4) Fit the spectral decompostion directly
+    """
+    def __init__(self, data, a_fm):
+        self.data = data
+        self.a_fm = a_fm
+        self.fits = SequentialFitResult()
+        self.r_ratio = None
+        self.r_direct = None
+
+
+    def run_source(self, n, no, p2_boost=None, **fitter_kwargs):
+        """ Fits the source 2pt function. """
+        tag = 'pi'
+        c2 = self.data.c2_src
+
+        c2.tag = tag
+        nstates = Nstates(n=n, no=no)
+        prior = bayes_prior.MesonPriorPDG(nstates, c2.tag, a_fm=self.a_fm)
+
+        # Boost the energies as necessary
+        if p2_boost:
+            prior[f"{tag}:dE"] = bayes_prior.boost(prior[f"{tag}:dE"], p2_boost)
+
+        fitter = TwoPointAnalysis(c2)
+        fit = fitter.run_fit(nstates, prior=prior, **fitter_kwargs)
+        self.fits.src = fit
+
+    def run_sink(self, m, mo, **fitter_kwargs):
+        """ Fits the sink 2pt function. """
+        tag = 'd'
+        c2 = self.data.c2_snk
+
+        c2.tag = tag
+        nstates = Nstates(n=m, no=mo)
+        prior = bayes_prior.MesonPriorPDG(nstates, c2.tag, a_fm=self.a_fm)
+
+        fitter = TwoPointAnalysis(c2)
+        fit = fitter.run_fit(nstates, prior=prior, **fitter_kwargs)
+        self.fits.snk = fit
+
+    def run_ratio(self, n, m, tmin_src, tmin_snk, t_step, **fitter_kwargs):
+        """ Fits the ratio Rbar. """
+        # Update the masses
+        self.data.c2_src.set_mass(self.fits.src.p[f"{self.data.c2_src.tag}:dE"][0])
+        self.data.c2_snk.set_mass(self.fits.snk.p[f"{self.data.c2_snk.tag}:dE"][0])
+
+        # Update the correlator names
+        self.data.c2_src.tag = 'light-light'
+        self.data.c2_snk.tag = 'heavy-light'
+
+        nstates = Nstates(n=n, no=0, m=m, mo=0)
+        _Times = collections.namedtuple('Times', ['tmin_src', 'tmin_snk', 't_step'])
+        times = _Times(tmin_src, tmin_snk, t_step)
+
+        fitter = RatioAnalysis(self.data)
+        fit = fitter(nstates, times, **fitter_kwargs)
+        self.fits.ratio = fit
+        self.r_ratio = fit.p['plateau']
+
+    def run_direct(self, nstates, **fitter_kwargs):
+        """ Fits the spectral decomposition directly. """
+        prior = bayes_prior.FormFactorPriorD2Pi(nstates, self.data, a_fm=self.a_fm)
+
+        fitter = FormFactorAnalysis(self.data, positive_ff=(self.data.sign > 0))
+        fitter.fit_form_factor(nstates=nstates, prior=prior, p0=prior.p0, **fitter_kwargs)
+        fit = fitter.fits['full']
+        self.fits.direct = fit
+        self.r_direct = fitter.r
+
+
+    def __call__(self, nstates, times, p2_boost, **fitter_kwargs):
+        """
+        Runs the sequential fits.
+        Args:
+            TODO
+        Returns:
+            TODO
+        """
+        # Set times once and for all
+        self.data.c2_src.times.tmin = times.tmin_src
+        self.data.c2_src.times.tmax = times.tmax_src
+        self.data.c2_snk.times.tmin = times.tmin_snk
+        self.data.c2_snk.times.tmax = times.tmax_snk
+
+        self.run_source(n=nstates.n, no=nstates.no, p2_boost=p2_boost, **fitter_kwargs)
+
+        self.run_sink(m=nstates.m, mo=nstates.mo, **fitter_kwargs)
+
+        self.run_ratio(
+            n=nstates.n-1,
+            m=nstates.m-1,
+            tmin_src=times.tmin_src,
+            tmin_snk=times.tmin_snk,
+            t_step=times.t_step,
+            **fitter_kwargs)
+
+        self.run_direct(nstates, **fitter_kwargs)
+
+
+    def summarize(self):
+        """ Print a summary of the results"""
+
+        print(" Source Fit ".center(80, "#"))
+        print(self.fits.src.format(maxline=False))
+
+        print(" Sink Fit ".center(80, "#"))
+        print(self.fits.snk.format(maxline=False))
+
+        print(" Ratio Fit ".center(80, "#"))
+        print(self.fits.ratio.format(maxline=False))
+
+        print(" Direct Fit ".center(80, "#"))
+        print(self.fits.direct.format(maxline=False))
+
+        print("Plateau, ratio:", self.r_ratio)
+        print("Plateau, direct:", self.r_direct)
+        print("Ratio of results 'ratio/direct':", self.r_ratio / self.r_direct)
+

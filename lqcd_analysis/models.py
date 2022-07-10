@@ -35,7 +35,7 @@ class Corr3(_Corr3):
             except:
                 new_prior['fluctuation'] = prior['fluctuation']
         return new_prior
-        
+
     def _buildprop(self, times, params, choice):
         """
         Builds an array of "propagators".
@@ -70,7 +70,7 @@ class Corr3(_Corr3):
                 * params[amp][:, None]
                 * np.exp(-times[None, :] * energies[:, None])
                 )
-        return np.array(prop)
+        return np.array(prop, dtype=object)
 
     def _get_vertices(self, params, idx_i, idx_j):
         """
@@ -107,20 +107,20 @@ class Corr3(_Corr3):
 
     def _apply_pedestal(self, vertices, params):
         """
-        Treats V[0,0] using fluctuation upon a pedestal, i.e., 
+        Treats V[0,0] using fluctuation upon a pedestal, i.e.,
         A[n][0] * Vnn[0,0] * B[n][0] -->
             A[n][0] * (pedestal +/- <fluctuation>) * B[n][0].
-        The sign of the fluctuation is taken from the sign of V[0,0]. This 
+        The sign of the fluctuation is taken from the sign of V[0,0]. This
         convention means that a log prior for 'fluctuation' can only only push
         the value of the matrix element *away* from the origin.
         """
         if self.pedestal is None:
             return vertices
-        v_copy = np.array(vertices)      
+        v_copy = np.array(vertices)
         sign = np.sign(self.pedestal)
         v_copy[0, 0] = self.pedestal + sign * _abs(params['fluctuation'])
         return v_copy
-    
+
     def _bind_with_vertices(self, aprop, bprop, params):
         """
         Binds propagators together with vertices according to
@@ -174,7 +174,7 @@ class ConstrainedCorr3(Corr3):
     A subclass extending the functionality of corrfitter.Corr3.
     This subclass gives a "constrained" version of the three-point function
     where only the matrix elements 'Vnn', 'Vno', 'Von', and 'Voo' are allowed
-    to vary in the fit. The amplitudes ('a' and 'b') and energy splittings 
+    to vary in the fit. The amplitudes ('a' and 'b') and energy splittings
     ('dE' and 'dEo') are fixed by the *central values* specified in the fit
     prior, discarding errors and correlations associated with these parameters.
     """
@@ -337,4 +337,4 @@ class ConstrainedCorr3(Corr3):
                             'length mismatch between b and V for '
                             + str(self.datatag)
                             )
-        return ans        
+        return ans
