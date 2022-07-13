@@ -439,7 +439,8 @@ class ChiralExpansionParameters:
 
     def _validate(self):
         # keys = ['m_light', 'm_strange', 'm_heavy', 'dm_heavy', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
-        keys = ['m_light', 'm_strange', 'm_heavy', 'dMH2', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
+        # keys = ['m_light', 'm_strange', 'm_heavy', 'dMH2', 'E', 'mu', 'fpi', 'DeltaBar', 'alpha_s']
+        keys = ['mpi5', 'dMH2', 'E', 'fpi', 'DeltaBar', 'alpha_s']
         for key in keys:
             test = (int(key in self.x) + int(key in self.params))
             if test == 1:
@@ -461,10 +462,12 @@ class ChiralExpansionParameters:
         [https://arxiv.org/abs/1509.06235], J. Bailey et al., PRD 93, 025026
         (2016) "B -> Kl+l− decay form factors from three-flavor lattice QCD."
         """
-        mu = self._get('mu')
+        mpi = self._get('mpi5')
+        # mu = self._get('mu')
         fpi = self._get('fpi')
-        m_light = self._get('m_light')
-        return (2. * mu * m_light) / (8. * np.pi**2. * fpi**2.)
+        # m_light = self._get('m_light')
+        # return (2. * mu * m_light) / (8. * np.pi**2. * fpi**2.)
+        return mpi**2 / (8. * np.pi**2. * fpi**2.)
 
     @property
     def strange(self):
@@ -634,6 +637,34 @@ class ChiralModel:
             f"continuum={self.continuum})"
         )
 
+
+def convert_to_w0_units(xdict):
+    """
+    Converts input data in physical units to dimensionless units of w0.
+    Assumes that all input data are in consistent units (e.g., MeV) and that
+    w0 is given in the same units (e.g., 1/MeV).
+    This function is useful for constructing final error budgets, where it's
+    important to maintain separation between errors coming from the scale w0
+    and the other input parameters (like the quark masses).
+    """
+    w0 = xdict['w0']
+    dim0 = ['alpha_s', 'units']
+    dim1 = ['fpi', 'm_light', 'm_strange', 'm_heavy', 'dm_heavy',
+            'mpi5', 'mK5', 'mS5', 'mu', 'M_mother', 'M_daughter', 'E']
+    dim2 = ['dMH2', 'DeltaBar']
+    result = {}
+    for key, value in xdict.items():
+        if (key in dim0) or (key == 'w0'):
+            result[key] = value
+        elif (key in dim1):
+            result[key] = value * w0
+        elif (key in dim2):
+            result[key] = value * w0**2
+        else:
+            raise ValueError("Unexpected key")
+    return result
+
+
 class LogLessModel(ChiralModel):
     """
     Base model for log-less description of form factors.
@@ -672,7 +703,12 @@ class LogLessModel(ChiralModel):
                 "Please specify either (x, params) or params as arguments."
             )
         x, params = args if len(args) == 2 else ({}, args[0])
-        dict_list = [x, params]
+        if ('units' in x) and (x['units'] == 'MeV'):
+            print("Converting input data to w0 units.")
+            _x = convert_to_w0_units(x)
+        else:
+            _x = x
+        dict_list = [_x, params]
 
         # Extract values from inputs
         leading = get_value(dict_list, 'leading')
