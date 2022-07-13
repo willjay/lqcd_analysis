@@ -66,6 +66,7 @@ Paper No. 264 (2017).
 import logging
 import numpy as np
 import gvar as gv
+import time
 
 LOGGER = logging.getLogger(__name__)
 
@@ -242,6 +243,40 @@ def direct_nl_shrink(sample_ev, n):
         dhat = np.flip(dhat, 0)
     return dhat
 
+def linear_shrink(corr, lam=0, target=None):
+    """
+    Computes the linear shrinkage estimator for the correlation matrix.
+    Args:
+        corr: np.ndarray, the input correlation matrix
+        lam: float, the shrinkage parameter in (0, 1)
+    Returns:
+        np.ndarray, the shrinkage estimator, "lam*identity + (1-lam)*corr"
+    """
+    if (lam < 0) or (lam > 1):
+        raise ValueError("Shrinkage parameter must be in (0, 1)")
+    if target is None:
+        target = np.eye(len(corr))
+    if target.shape != corr.shape:
+        raise ValueError("Incommensurate shapes.")
+    return lam*target + (1 - lam)*corr
+
+
+def linear_shrink_dataset(dataset, lam=0, target=None):
+    """
+    Applies linear shrinkage to the correlated dataset of gvars.
+    Args:
+        dataset: list / np.ndarray of correlated gvars
+        lam: float, the shrinkage parameter in (0, 1)
+    Returns:
+        np.ndarray, the dataset but with modified correlation matrix
+    """
+    mean = gv.mean(dataset)
+    sdev = np.diag(gv.sdev(dataset))
+    corr = gv.evalcorr(dataset)
+    # cov = sdev @ linear_shrink(corr, lam=lam, target=target) @ sdev
+    cov = np.matmul(sdev, np.matmul(linear_shrink(corr, lam=lam, target=target), sdev))
+    return gv.gvar(mean, cov)
+
 
 class LinearShrinkage:
     """
@@ -251,6 +286,10 @@ class LinearShrinkage:
     [https://dx.doi.org/https://doi.org/10.1016/S0047-259X(03)00096-4]
     An accessible review in the context of lattice gauge theory is given by
     E. Rinaldi et al [https://arxiv.org/pdf/1901.07519.pdf] in Appendix B.
+    The class is useful for using the "optimal" shrinkage parameter, which
+    requires knowledge of the underlying samples. The "optimal" parameter is
+    not always preferred in practice, since it sometimes chooses what seems
+    like an overly aggressive value (e.g., lambda=1, dropping all correlations).
     """
     def __init__(self, samples, bstrap=False):
         """
