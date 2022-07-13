@@ -45,12 +45,12 @@ def errorbar(ax, x, y, bands=False, **kwargs):
     try:
         xerr = gv.sdev(x)
     # sdev throws error w/ x = np.arange(>50)
-    except ZeroDivisionError:
+    except (ZeroDivisionError, MemoryError) as err:
         xerr = 0.*np.array(x)  # in case x passed from plot().
     x = gv.mean(x)
     try:
         yerr = gv.sdev(y)
-    except ZeroDivisionError:
+    except (ZeroDivisionError, MemoryError) as err:
         yerr = 0.*y
     y = gv.mean(y)
     if bands:
@@ -64,6 +64,8 @@ def errorbar(ax, x, y, bands=False, **kwargs):
             facecolor=facecolor,
             alpha=alpha)
     else:
+        if ('marker' in kwargs) and ('fmt' in kwargs):
+            _ = kwargs.pop('fmt')
         ax.errorbar(x=x, xerr=xerr, y=y, yerr=yerr, **kwargs)
     return ax
 
@@ -82,14 +84,12 @@ def mirror(y, x=None, ax=None, label=None, color=None):
             f"Size mismatch between x and y: len(x)={len(x)}, len(y)={len(y)}")
     neg = y < 0
     pos = ~neg
-    errorbar(ax, x[pos], y[pos], marker='o', fmt='.', color=color, label=label)
-    color = ax.lines[-1].get_color()  # match color
-    errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color,
-             markerfacecolor='none', markeredgewidth=2)
+    if pos.any():
+        errorbar(ax, x[pos], y[pos], fmt='o', color=color, label=label)
+        color = ax.lines[-1].get_color()  # match color
     if neg.any():
-        errorbar(ax, x[neg], -y[neg], marker='s', fmt='.', color=color,
+        errorbar(ax, x[neg], -y[neg], fmt='s', color=color,
                  markerfacecolor='none', markeredgewidth=2)
-    errorbar(ax, x, np.sign(y)*y, color=color)
     return ax
 
 def noise_to_signal(ax, y, x=None, label=None, color=None):
