@@ -258,8 +258,8 @@ class TwoPoint(object):
         if ax is None:
             _, ax = plt.subplots(1)
         _ = kwargs.pop('avg', None)  # discard keyword 'arg' for easier compatibility with plot_meff
-
-        for ti, marker in zip([0, 1], ['^', 'o']):
+        _ = kwargs.pop('fmt', None)
+        for ti, fmt in zip([0, 1], ['^', 'o']):
             y = 0.5 * effective_mass(self.ydata[ti::2])
             x = np.arange(ti, 2*len(y), 2)
             if a_fm is not None:
@@ -270,7 +270,7 @@ class TwoPoint(object):
                     kwargs['color'] = ax.lines[-1].get_color()  # match colors
             if ti == 1:
                 kwargs.pop('label', None)
-            plt.errorbar(ax, x[mask], y[mask], marker=marker, **kwargs)
+            plt.errorbar(ax, x[mask], y[mask], fmt=fmt, **kwargs)
 
         return ax
 
