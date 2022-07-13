@@ -232,7 +232,7 @@ def relativistic_dispersion(dataframe, ax=None, x_offset=0, alpha_v=None, **kwar
     """
     for col in ['energy', 'p2', 'phat2']:
         if col not in dataframe.columns:
-            raise ValueError("Missing column. Looking for '{col}' but found {dataframe.columns}")
+            raise ValueError(f"Missing column. Looking for '{col}' but found {dataframe.columns}")
 
     if ax is None:
         _, ax = plt.subplots(1, figsize=(5, 5))
