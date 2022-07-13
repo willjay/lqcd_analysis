@@ -666,7 +666,7 @@ class FormFactorPriorD2D(BasePrior):
         prior['light-light:a'] = decay_amplitudes(nstates.n, amp, amp)
         prior['heavy-light:dE'] = PhysicalSplittings('d')(nstates.m, a_fm)
         prior['heavy-light:a'] = decay_amplitudes(nstates.m, amp, amp)
-        
+
         # Oscillating states
         if nstates.no:
             prior['light-light:dEo'] = PhysicalSplittings('d_osc')(nstates.no, a_fm)
