@@ -38,6 +38,12 @@ class SerializableNonlinearFit:
                      'p_value', 'aic', 'model_probability']:
             self.__setattr__(attr, stats.__getattribute__(attr))
 
+    def __str__(self):
+        return self.format()
+
+    def __repr__(self):
+        return str(self)
+
     @property
     def p(self):
         return self._getp()
