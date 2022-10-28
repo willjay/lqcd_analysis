@@ -13,9 +13,9 @@ from . import serialize
 from . import chipt
 from . import su2
 from . import staggered
-
 from allhisq_analysis import data_tables
 
+print("Warning -- chipt_fitting.py is deprecated and planned for deletion.")
 
 FitKey = namedtuple('FitKey', ['a_fm', 'description', 'm_light', 'm_strange', 'm_heavy'])
 
@@ -87,7 +87,8 @@ def read_boot_data(engine, ens_id, spin_taste_current, process):
         " JOIN ensemble USING(ens_id)"
         " JOIN alias_form_factor USING(form_factor_id)"
         " JOIN result_form_factor_bootstrap USING(form_factor_id) WHERE"
-        f" (ens_id, spin_taste_current) = ({ens_id}, '{spin_taste_current}')"
+        " (boot_id != 1897)"
+        f" AND (ens_id, spin_taste_current) = ({ens_id}, '{spin_taste_current}')"
         f" AND (alias_heavy in {masses['alias_heavy']})"
         f" AND (alias_light in {masses['alias_light']})"
         f" AND (alias_spectator in {masses['alias_spectator']})"
@@ -110,7 +111,59 @@ def read_boot_data(engine, ens_id, spin_taste_current, process):
     return df
 
 
-def correlate_boot_data(dataframe):
+def read_boot_renormalization(engine, ens_id, spin_taste_current, alias_spectator):
+    """
+    Reads bootstrap results for the renormalization factor ZV4 or ZVi, computed
+    nonperturbatively using partial conservation of the vector current (PCVC).
+    Args:
+        engine: database connection engine
+        ens_id: int, specifying the ensemble
+        spin_taste_current: str, e.g., 'V4-V4'
+        alias_*: str, e.g., '1.0 m_light'
+    Returns:
+        DataFrame
+    """
+    if spin_taste_current == 'S-S':
+        raise ValueError('Scalar current is absolutely normalized.')
+    if spin_taste_current in ('T14-V4', 'T24-V4', 'T34-V4'):
+        raise ValueError('Tensor currents cannot be renormalized using PCVC.')
+    if spin_taste_current not in ('V4-V4', 'Vi-S', 'V1-S', 'V2-S', 'V3-S'):
+        raise ValueError('Unexpected current', spin_taste_current)
+
+    params = {'ens_id': ens_id}
+    query = """
+        SELECT mq FROM alias_quark_mass
+        WHERE (ens_id = %(ens_id)s) AND (alias = %(alias)s);"""
+    # Read each mass
+    # params['alias'] = alias_heavy
+    # m_heavy = pd.read_sql(query, engine, params=params)['mq'].item()
+    # params['alias'] = alias_light
+    # m_light = pd.read_sql(query, engine, params=params)['mq'].item()
+    params['alias'] = alias_spectator
+    m_spectator = pd.read_sql(query, engine, params=params)['mq'].item()
+
+    # Read Z-factors
+    params = {
+        'ens_id': ens_id,
+        'm_spectator': m_spectator,
+    }
+    query = """
+        SELECT ens_id, m_heavy, m_light, draw_number, zv4, zvi
+        FROM result_pcvc_bootstrap
+        WHERE (ens_id = %(ens_id)s)
+        AND   (m_spectator = %(m_spectator)s);"""
+    df = pd.read_sql(query, engine, params=params)
+    for col in ['zv4','zvi']:
+        df[col] = df[col].apply(float)
+    if spin_taste_current == 'Vi-S':
+        cols = ['ens_id','m_heavy', 'm_light', 'draw_number', 'zvi']
+        return df[cols].rename(columns={'zvi': 'Z'})
+    else:
+        cols = ['ens_id','m_heavy', 'm_light', 'draw_number', 'zv4']
+        return df[cols].rename(columns={'zv4': 'Z'})
+
+
+def correlate_boot_data(dataframe, shrink_choice='nonlinear', svdcut=None, inflate=1.0):
     """
     Correlates bootstrap data.
     """
@@ -123,11 +176,18 @@ def correlate_boot_data(dataframe):
         print(f"ens_id={ens_id}: dropping {len(bad_draws)}.")
         data = []
         boot = {k: [] for k in ['form_factor','energy_src','energy_snk','amp_src','amp_snk']}
+        # if 'Z' in df:
+            # boot['Z'] = []
+            # boot['form_factor'] = []
         for tags, subdf in df[keep].groupby(level_2):
             form_factor_id, alias_light, alias_heavy, momentum = tags
             ns = subdf['ns'].unique().item()
-            for key in boot:
+            for key in ['energy_src','energy_snk','amp_src','amp_snk']:
                 boot[key].append(subdf[key].values)
+            if 'Z' in subdf:
+                boot['form_factor'].append((subdf['form_factor']*subdf['Z']).values)
+            else:
+                boot['form_factor'].append(subdf['form_factor'].values)
             data.append({
                 'ens_id': ens_id,
                 'description': description,
@@ -144,11 +204,21 @@ def correlate_boot_data(dataframe):
 
         # Correlate all data belonging to a single ensemble
         for key, value in boot.items():
-            boot[key] = np.vstack(value).transpose()
+            try:
+                boot[key] = np.vstack(value).transpose()
+            except ValueError:
+                # Sometimes a failed fit causes some bootstrap fit to be missing
+                # Kludge: resize to match the smallest case
+                minsize = min([len(subvalue) for subvalue in value])
+                value = [subvalue[:minsize] for subvalue in value]
+                boot[key] = np.vstack(value).transpose()
 
         mean = gv.dataset.avg_data(boot, bstrap=True, noerror=True)
-        cov = dataset.correct_covariance(boot, shrink_choice='nonlinear', bstrap=True)
+        cov = dataset.correct_covariance(boot, shrink_choice=shrink_choice, bstrap=True, inflate=inflate)
         boot = gv.gvar(mean, cov)
+        if svdcut is not None:
+            print("Applying svdcut at read time", svdcut)
+            boot = gv.svd(boot, svdcut=svdcut)
 
         # Repackage result
         data = pd.DataFrame(data)
@@ -168,17 +238,33 @@ def correlate_boot_data(dataframe):
     return output
 
 
-def read_all(current, process, engine):
+def read_all(current, process, engine, shrink_choice='nonlinear', svdcut=None, inflate=1.0):
 
     dfs = []
     # for ens_id in [25, 15, 28, 13, 12]:
-    for ens_id in [25, 15, 28, 13, 12, 36, 35]:
     # for ens_id in [11, 25, 15, 28, 13, 12]:
+    for ens_id in [25, 15, 28, 13, 12, 36, 35]:
         df = read_boot_data(engine, ens_id, current, process)
+        if current != 'S-S':
+            if process in ('D2K', 'D to K'):
+                # Fix the spectator to match the spectator 'light' quark
+                # Depending on the ensemble, this can take values in
+                # '1.0 m_light', '0.1 m_strange', and '0.2 m_strange'
+                alias_spectator = df['alias_spectator'].unique().item()
+            elif process in ('Ds2K', 'Ds to K', 'D2pi', 'D to pi'):
+                # Fix the spectator to be a strange quark
+                # Z-factors are properties of the quark-level currents and
+                # thus independent of the spectator quark.
+                # Therefore, we are free to choose the spectator to suit our
+                # purposes. A heavier spectator (e.g., '1.0 m_strange')
+                # typically yields cleaner results.
+                alias_spectator = '1.0 m_strange'
+            z = read_boot_renormalization(engine, ens_id, current, alias_spectator)
+            df = pd.merge(df, z, on=['ens_id','m_heavy','m_light', 'draw_number'])
         print(f"Read {len(df)} lines for ens_id={ens_id}")
         dfs.append(df)
     df = pd.concat(dfs)
-    data = correlate_boot_data(df)
+    data = correlate_boot_data(df, shrink_choice, svdcut, inflate)
     data['phat2'] = data['momentum'].apply(analysis.phat2)
     lattice_spacing = pd.read_sql("select ens_id, a_fm from lattice_spacing;", engine)
     data = pd.merge(data, lattice_spacing, on='ens_id')
@@ -207,13 +293,16 @@ def read_all(current, process, engine):
 
 
 class FormFactorData:
-    def __init__(self, process, engine):
+    def __init__(self, process, engine, shrink_choice='nonlinear', svdcut=None, inflate=1.0):
         self._valid_names = ['Ds to K', 'D to K', 'D to pi','Ds2K', 'D2K', 'D2pi']
         self._valid_channels = ['f_parallel', 'f_perp', 'f_scalar', 'f_plus', 'f_0']
         if process not in self._valid_names:
             raise ValueError("Unrecognized process", process)
         self.process = process
         self.engine = engine
+        self.shrink_choice = shrink_choice
+        self.svdcut = svdcut
+        self.inflate = inflate
         self._scalar = None
         self._parallel = None
         self._perp = None
@@ -266,7 +355,8 @@ class FormFactorData:
     @property
     def f_scalar(self):
         if self._scalar is None:
-            df = read_all('S-S', self.process, self.engine)
+            df = read_all('S-S', self.process, self.engine, self.shrink_choice,
+                          self.svdcut, self.inflate)
             # Renormalization is not required, since the scalar density is absolutely normalized.
             # Changing units is not required, since the scalar form factor is dimensionless.
             # Apply normalization to remove leading-order discretization effect from HQET
@@ -282,13 +372,14 @@ class FormFactorData:
     def f_parallel(self):
         if self._parallel is None:
             # Get bare form factors
-            df = read_all('V4-V4', self.process, self.engine)
+            df = read_all('V4-V4', self.process, self.engine, self.shrink_choice,
+                          self.svdcut, self.inflate)
             print("Size before merging Z factors", len(df))
             # Renormalize
-            renorm = self.get_z_factors('ZV4')
-            df = pd.merge(df, renorm, on=['ens_id', 'alias_light', 'alias_heavy'])
-            print("Size after merging Z factors", len(df))
-            df['form_factor'] = df['form_factor'] * df['ZV4']
+            # renorm = self.get_z_factors('ZV4')
+            # df = pd.merge(df, renorm, on=['ens_id', 'alias_light', 'alias_heavy'])
+            # print("Size after merging Z factors", len(df))
+            # df['form_factor'] = df['form_factor'] * df['ZV4']
             df['form_factor'] = df['form_factor'] * np.sign(df['form_factor'])
             # Convert from lattice units to dimensionless units of w0
             # Note: [f_parallel] = +1/2
@@ -304,20 +395,21 @@ class FormFactorData:
     def f_perp(self):
         if self._perp is None:
             # Get bare form factors
-            df = read_all('Vi-S', self.process, self.engine)
+            df = read_all('Vi-S', self.process, self.engine, self.shrink_choice,
+                          self.svdcut, self.inflate)
             print("Size before merging Z factors", len(df))
             # Renormalize
-            renorm = self.get_z_factors('ZVi')
-            df = pd.merge(df, renorm, on=['ens_id', 'alias_light', 'alias_heavy'])
-            print("Size after merging Z factors", len(df))
-            df['form_factor'] = df['form_factor'] * df['ZVi']
+            # renorm = self.get_z_factors('ZVi')
+            # df = pd.merge(df, renorm, on=['ens_id', 'alias_light', 'alias_heavy'])
+            # print("Size after merging Z factors", len(df))
+            # df['form_factor'] = df['form_factor'] * df['ZVi']
             # Convert from lattice units to dimensionless units of w0
             # Note: [f_perp] = -1/2
             df = pd.merge(df, self.w0, on=['a_fm', 'description'])
             print("Size after merging w0 scale", len(df))
             df['form_factor'] = df['form_factor'] / np.sqrt(df['w0_orig/a'])
             # Apply normalization to remove leading-order discretization effect from HQET
-            df['form_factor'] = df['form_factor'] * df['m_heavy'].apply(staggered.chfac)            
+            df['form_factor'] = df['form_factor'] * df['m_heavy'].apply(staggered.chfac)
             self._perp = df
         return self._perp
 
@@ -415,8 +507,10 @@ def build_fit_data(dataframe, mother_name):
     Returns:
         xdict, ydict: the data dictionaries for the fit
     """
-    if mother_name not in ['D', 'D_s']:
+    if mother_name not in ['D', 'D_s', 'Ds']:
         raise ValueError("Unexpected mother_name:", mother_name)
+    if mother_name == 'Ds':
+        mother_name = 'D_s'  # Needed as key for pdg
     keys = ['a_fm', 'description', 'm_light', 'm_strange', 'm_heavy', 'dm_heavy']
     groups = dataframe.groupby(keys)
     xdict, ydict = {}, {}
@@ -455,7 +549,7 @@ def build_fit_data(dataframe, mother_name):
         x['mpi5'] = subdf['pion'].apply(gv.mean).unique().item() * w0
         x['mK5'] = subdf['kaon'].apply(gv.mean).unique().item() * w0
         x['mS5'] = np.sqrt(const['mu'] * (2 * m_strange) * w0)
-        
+
         # Heavy meson splitting
         x['dMH2'] = x['M_mother']**2 - M_pdg**2
 
@@ -512,6 +606,15 @@ class ContinuumLimit:
             energy_min = energy_min * scale.w0_fm / ctm.hbarc
             energy_max = energy_max * scale.w0_fm / ctm.hbarc
         return (energy_min, energy_max)
+
+    def get_energy_with_errors(self, *args, **kwargs):
+        """
+        Gets the energy in w0 units, including scale-setting errors.
+        """
+        emin, emax = self.get_energy_bounds(MeV=True)
+        scale = data_tables.ScaleSetting()
+        ctm = data_tables.ContinuumConstants()
+        return np.linspace(emin, emax, *args, **kwargs)*scale.w0_fm/ctm.hbarc
 
     @property
     def x(self):
@@ -605,6 +708,7 @@ class ModelVariations:
         priors = {}
         nlo_terms = ['c_l', 'c_H', 'c_E', 'c_E2']
         nnlo_terms = ['c_l2', 'c_lH', 'c_lE', 'c_H2', 'c_HE']
+        n3lo_terms = ['c_l3', 'c_E3', 'c_H3', 'c_l2E', 'cl2H', 'c_E2l', 'c_E2H', 'c_H2l', 'c_H2E', 'c_HlE']
         minimal_terms = ['c_H', 'c_E', 'c_E2', 'c_lE', 'c_EH']
         if 'SU3' in self.model_name:
             nlo_terms.append('c_s')
@@ -619,23 +723,24 @@ class ModelVariations:
 
         # Full NNLO
         priors['NNLO'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms + nnlo_terms)
+        priors['N3LO'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms + nnlo_terms + n3lo_terms)
         priors['NNLO, priors 10x'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms + nnlo_terms, 10)
         # priors['NNLO, priors 100x'] = _load_prior(self.build_base_prior(), ['c_a2'] + nlo_terms + nnlo_terms, 100)
 
         # Alternative treatments of discretization errors
         # - a = generic discetization effects
         # - h = HQET discretization effects
-        priors['NNLO, a'] =  _load_prior(self.build_base_prior(), ['c_a'] + nlo_terms + nnlo_terms)
-        priors['NNLO, a4'] = _load_prior(self.build_base_prior(), ['c_a4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, a'] =  _load_prior(self.build_base_prior(), ['c_a'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, a4'] = _load_prior(self.build_base_prior(), ['c_a4'] + nlo_terms + nnlo_terms)
         priors['NNLO, h2'] = _load_prior(self.build_base_prior(), ['c_h2'] + nlo_terms + nnlo_terms)
-        priors['NNLO, h4'] = _load_prior(self.build_base_prior(), ['c_h4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, h4'] = _load_prior(self.build_base_prior(), ['c_h4'] + nlo_terms + nnlo_terms)
         priors['NNLO, a2+a4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4'] + nlo_terms + nnlo_terms)
         priors['NNLO, a2+h2'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h2'] + nlo_terms + nnlo_terms)
-        priors['NNLO, a2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h4'] + nlo_terms + nnlo_terms)
-        priors['NNLO, h2+a4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_a4'] + nlo_terms + nnlo_terms)
-        priors['NNLO, h2+h4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
-        priors['NNLO, a2+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
-        priors['NNLO, a2+a4+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, a2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_h4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, h2+a4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_a4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, h2+h4'] = _load_prior(self.build_base_prior(), ['c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, a2+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
+        # priors['NNLO, a2+a4+h2+h4'] = _load_prior(self.build_base_prior(), ['c_a2', 'c_a4', 'c_h2', 'c_h4'] + nlo_terms + nnlo_terms)
 
         return priors
 
@@ -647,7 +752,7 @@ class WrappedModel:
         return {key: self.model(xvalue, p) for key, xvalue in x.items()}
 
 
-def run_fits(process, channel, engine):
+def run_fits(process, channel, engine, shrink_choice='nonlinear', svdcut=None, noise_cut=None, correlated=True, inflate=1.0, **kwargs):
 
     if process in ['D to pi', 'D to K']:
         mother_name = 'D'
@@ -656,32 +761,46 @@ def run_fits(process, channel, engine):
     else:
         raise ValueError("Unexpected process", process)
 
-    data = FormFactorData(process, engine)[channel]
+    data = FormFactorData(process, engine, shrink_choice, svdcut, inflate)[channel]
+    if noise_cut is not None:
+        print("Size before noise cut", len(data))
+        data = data[np.abs(data['form_factor'].apply(analysis.n2s)) < noise_cut]
+        print("Size after noise cut", len(data))
+
     scale = data_tables.ScaleSetting()
     ctm = data_tables.ContinuumConstants()
     lam = gv.mean(700 * scale.w0_fm / ctm.hbarc)
 
-    if process == 'Ds to K':
+    if channel == 'f_0':
         models = {
-            # 'SU2': su2.SU2Model,
-            'HardSU2': su2.HardSU2Model,
-            # 'SU2:continuum': su2.SU2Model,
-            'HardSU2:continuum': su2.HardSU2Model,
+            # 'SU2': su2.SU2ModelF0,
+            # 'SU2:continuum': su2.SU2ModelF0,
+            # 'HardSU2': su2.HardSU2ModelF0,
+            # 'HardSU2:continuum': su2.HardSU2ModelF0,
             'LogLess': chipt.LogLessModel,
         }
     else:
-        models = {
-            # 'SU2': su2.SU2Model,
-            'HardSU2': su2.HardSU2Model,
-            # 'SU2:continuum': su2.SU2Model,
-            'HardSU2:continuum': su2.HardSU2Model,
-            'LogLess': chipt.LogLessModel,
-        }
+        if process == 'Ds to K':
+            models = {
+                # 'SU2': su2.SU2Model,
+                'HardSU2': su2.HardSU2Model,
+                # 'SU2:continuum': su2.SU2Model,
+                'HardSU2:continuum': su2.HardSU2Model,
+                'LogLess': chipt.LogLessModel,
+            }
+        else:
+            models = {
+                # 'SU2': su2.SU2Model,
+                'HardSU2': su2.HardSU2Model,
+                # 'SU2:continuum': su2.SU2Model,
+                'HardSU2:continuum': su2.HardSU2Model,
+                'LogLess': chipt.LogLessModel,
+            }
 
     results = []
     for model_name, model_fcn in models.items():
         print("Starting fits for", model_name)
-        
+
         # Define models
         if model_name == 'LogLess':
             model = model_fcn(channel, process, lam=lam)
@@ -695,12 +814,13 @@ def run_fits(process, channel, engine):
         wrapped = WrappedModel(model)
         model_continuum = model_fcn(channel, process, lam=lam, continuum=True)
         continuum = ContinuumLimit(model.process)
-        
+
         # Masks for dropping parts of the dataset
         masks = {
             'full': data['a_fm'] > 0,  # trivially true by definition. The full dataset.
             'omit 0.12 fm': data['a_fm'] != 0.12,  # drop the coarsest lattice spacing
             'omit 0.042 fm': data['a_fm'] != 0.042,  # drop the finest lattice spacing
+            'mh/mc <= 1.5': ~data['alias_heavy'].isin(['2.0 m_charm', '2.2 m_charm']),
             'mh/mc <= 1.1': ~data['alias_heavy'].isin(['1.4 m_charm', '1.5 m_charm', '2.0 m_charm', '2.2 m_charm']),
             'mh/mc = 1.0 only': data['alias_heavy'] == '1.0 m_charm',
             'physical pions only': data['description'] == '1/27',
@@ -712,15 +832,17 @@ def run_fits(process, channel, engine):
             # Run variations on the model
             priors = ModelVariations(model.process, model_name).priors
             for label, prior in tqdm(priors.items()):
-                # if (label != 'NNLO') & (mask_label not in ('full', 'mh/mc <= 1.1')):
-                if (label != 'NNLO') & (mask_label not in ('full', )):
+                if (label not in ('NNLO', 'N3LO')) & (mask_label not in ('full', 'mh/mc <= 1.1')):
+                # if (label != 'NNLO') & (mask_label not in ('full', )):
                     # Keep: full data and NNLO
                     # Keep: full data and model variation
                     # Keep: drop data and NNLO
                     # Skip: drop data and model variation simultaneously
                     continue
-
-                fit = lsqfit.nonlinear_fit(data=(x, y_data), fcn=wrapped, prior=prior, debug=True)
+                if correlated:
+                    fit = lsqfit.nonlinear_fit(data=(x, y_data), fcn=wrapped, prior=prior, debug=True, **kwargs)
+                else:
+                    fit = lsqfit.nonlinear_fit(udata=(x, y_data), fcn=wrapped, prior=prior, debug=True, **kwargs)
                 fit = serialize.SerializableNonlinearFit(fit)
                 y_ctm = model_continuum(continuum.x, fit.p)
                 result = fit.serialize()

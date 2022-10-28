@@ -59,6 +59,10 @@ def get_masses(engine, ens_id, process, alias_heavy):
         M_mother = hadron_masses['d'].item()
     else:
         raise ValueError("Unrecognized process", process)
+    # Note: retaining just the mean values is safe/correct in this instance.
+    # These masses are used in constructing the different form factors on each
+    # ensemble, so the total error comes from the width of the boostrap
+    # distribution.
     return gv.mean(M_daughter), gv.mean(M_mother)
 
 
@@ -164,12 +168,20 @@ def align_form_factors(engine, process, dataframe):
         # Carry along other values
         for key, value in zip(keys, values):
             pivot[key] = value
-        pivot['p2'] = pivot[['momentum','ns']].apply(lambda args: analysis.p2(*args), axis=1)
+        # pivot['p2'] = pivot[['momentum','ns']].apply(lambda args: analysis.p2(*args), axis=1)
         # Grab masses / energies
-        ML, MH = get_masses(engine, tags.ens_id, process, tags.alias_heavy)
-        pivot['MH'] = MH
-        pivot['ML'] = ML
-        pivot['EL'] = np.sqrt(pivot['ML']**2 + pivot['p2'])
+        mask = (df['spin_taste_current'] == 'S-S')
+        cols = ['draw_number', 'momentum', 'energy_src', 'energy_snk', 'p2']
+        masses = pd.DataFrame(df[mask][cols])
+        masses.rename(columns={'energy_src':'EL', 'energy_snk': 'MH'}, inplace=True)
+        mask = (df['spin_taste_current'] == 'S-S') & (df['momentum'] == 'p000')
+        masses = pd.merge(masses, df[mask][['draw_number', 'energy_src']], on='draw_number')
+        masses.rename(columns={'energy_src':'ML'}, inplace=True)
+        pivot = pd.merge(pivot,  masses, how='left', on=['momentum', 'draw_number'])
+        # ML, MH = get_masses(engine, tags.ens_id, process, tags.alias_heavy)
+        # pivot['MH'] = MH
+        # pivot['ML'] = ML
+        # pivot['EL'] = np.sqrt(pivot['ML']**2 + pivot['p2'])
         # Estimate derivatives
         dfdp2 = estimate_derivatives(pivot)
         pivot = pd.merge(pivot, dfdp2, how='left', on=['momentum', 'draw_number'])
@@ -236,7 +248,7 @@ def combine_bootstrap(engine, process, dataframe, shrink_choice='nonlinear', svd
     return avg
 
 
-def read_all(process, engine, shrink_choice='nonlinear', svdcut=None, inflate=1.0):
+def read_all(process, engine, shrink_choice='nonlinear', svdcut=None, inflate=1.0, rescale=True):
     """
     Reads all form factor data for decays of D-mesons.
     """
@@ -261,7 +273,7 @@ def read_all(process, engine, shrink_choice='nonlinear', svdcut=None, inflate=1.
         else:
             raise NotImplemented
 
-        df = read_data(engine, ens_id, process, alias_spectator, shrink_choice, svdcut)
+        df = read_data(engine, ens_id, process, alias_spectator, shrink_choice, svdcut, rescale)
         # Read masses from 2pt fits
         hadron_masses = pd.read_sql("SELECT * FROM hadron_masses;", engine)
         for key in ['pion', 'kaon', 'd', 'ds']:
@@ -317,7 +329,17 @@ def read_all(process, engine, shrink_choice='nonlinear', svdcut=None, inflate=1.
     return data
 
 
-def read_data(engine, ens_id, process, alias_spectator='1.0 m_strange', shrink_choice='nonlinear', svdcut=None):
+def rescale_vector(form_factor, M_mother, energy_snk):
+    return form_factor * np.sqrt(M_mother) / np.sqrt(energy_snk)
+
+
+def rescale_scalar(form_factor, M_mother, M_daughter, energy_snk, energy_src, p2):
+    return form_factor * (M_mother**2 - M_daughter**2)\
+        /(energy_snk**2 - (energy_src**2 - p2))
+
+
+def read_data(engine, ens_id, process, alias_spectator='1.0 m_strange',
+              shrink_choice='nonlinear', svdcut=None, combine=True, rescale=True):
     """
     Reads data from the database for all currents (i.e., all matrix elements)
     from a single ensemble for a given decay process.
@@ -345,10 +367,196 @@ def read_data(engine, ens_id, process, alias_spectator='1.0 m_strange', shrink_c
         df[col] = df[col].apply(float)
     df['phat2'] = df['momentum'].apply(analysis.phat2)
     df['p2']= df[['momentum','ns']].apply(lambda args: analysis.p2(*args), axis=1)
-    print("Total size before bootstrap averaging", len(df))
-    df = combine_bootstrap(engine, process, df, shrink_choice, svdcut)
-    print("Total size after bootstrap averaging", len(df))
+
+    # Rescale form factors to include correlated fluctuations from energies
+    if rescale:
+        # Read masses from 2pt fits
+        hadron_masses = pd.read_sql("SELECT * FROM hadron_masses;", engine)
+        for key in ['pion', 'kaon', 'd', 'ds']:
+            hadron_masses[key] = hadron_masses[key].apply(gv.gvar)
+        df = pd.merge(df, hadron_masses, on=['ens_id', 'alias_heavy', 'm_heavy'])
+        if process in ['Ds to K', 'Ds2K']:
+            df['M_daughter'] = df['kaon']
+            df['M_mother'] = df['ds']
+        elif process in ['D to K', 'D2K']:
+            df['M_daughter'] = df['kaon']
+            df['M_mother'] = df['d']
+        elif process in ['D to pi', 'D2pi']:
+            df['M_daughter'] = df['pion']
+            df['M_mother'] = df['d']
+        else:
+            raise ValueError("Unrecognized process", process)
+        for col in ['M_daughter','M_mother']:
+            df[col] = df[col].apply(gv.mean)
+        df.drop(columns=['pion', 'kaon', 'd', 'ds'], inplace=True)
+
+        # Apply rescaling factors
+        mask = df['spin_taste_current'].isin(['V4-V4', 'Vi-S'])
+        cols = ['form_factor', 'M_mother', 'energy_snk']
+        df.loc[mask, 'form_factor'] = df[mask][cols].\
+            apply(lambda args: rescale_vector(*args), axis=1)
+
+        mask = (df['spin_taste_current'] == 'S-S')
+        cols = ['form_factor', 'M_mother', 'M_daughter', 'energy_snk', 'energy_src', 'p2']
+        df.loc[mask, 'form_factor'] = df[mask][cols].\
+            apply(lambda args: rescale_scalar(*args), axis=1)
+        df.drop(columns=['M_mother','M_daughter'], inplace=True)
+
+    if combine:
+        print("Total size before bootstrap averaging", len(df))
+        df = combine_bootstrap(engine, process, df, shrink_choice, svdcut)
+        print("Total size after bootstrap averaging", len(df))
+
     return df
+
+class FitRunner:
+    def __init__(self, process, data):
+
+        if process in ['D to pi', 'D to K']:
+            self.mother_name = 'D'
+        elif process in ['Ds to K']:
+            self.mother_name = 'Ds'
+        else:
+            raise ValueError("Unexpected process", process)
+
+        self.process = process
+        self.data = data
+
+        self.models = {
+            'f_0': {
+                'HardSU2': su2.HardSU2Model,
+                'HardSU2:continuum': su2.HardSU2Model,
+                'LogLess': chipt.LogLessModel,
+            },
+            'f_perp': {
+                'HardSU2': su2.HardSU2Model,
+                'HardSU2:continuum': su2.HardSU2Model,
+                'LogLess': chipt.LogLessModel,
+            },
+            'f_parallel': {
+                'HardSU2': su2.HardSU2Model,
+                'HardSU2:continuum': su2.HardSU2Model,
+                'LogLess': chipt.LogLessModel,
+            },
+        }
+
+    def is_base_fit(self, model_name, dataset_name, model_label):
+        if (model_name, dataset_name, model_label) == ('HardSU2', 'full', 'NNLO'):
+            return True
+        return False
+
+    def get_masks(self, dataframe):
+        return {
+            'full': dataframe['a_fm'] > 0,
+            'omit 0.12 fm': dataframe['a_fm'] != 0.12,
+            'omit 0.042 fm': dataframe['a_fm'] != 0.042,
+            'mh/mc <= 1.5': ~dataframe['alias_heavy'].\
+                isin(['2.0 m_charm', '2.2 m_charm']),
+            'mh/mc <= 1.1': ~dataframe['alias_heavy'].\
+                isin(['1.4 m_charm', '1.5 m_charm', '2.0 m_charm', '2.2 m_charm']),
+            'mh/mc = 1.0 only': dataframe['alias_heavy'] == '1.0 m_charm',
+            'physical pions only': dataframe['description'] == '1/27',
+        }
+
+    def __call__(self, channel, construction, noise_cut=0.2, **kwargs):
+
+        if construction not in (1, 2):
+            raise ValueError("Unexpected construction", construction)
+        if construction == 1:
+            suffix = ''
+        else:
+            suffix = '2'
+        form_factor_type = f"{channel.replace('_', '')}{suffix}"
+        print("Running fits for", form_factor_type)
+
+        if noise_cut is not None:
+            print("Size before noise cut", len(self.data))
+            keep = np.abs(self.data['form_factor'].apply(analysis.n2s)) < noise_cut
+            data = pd.DataFrame(self.data[keep])
+            print("Size after noise cut", len(data))
+
+        svdcut = kwargs.pop('svdcut', None)
+        if svdcut is not None:
+            svdcuts = {
+                'Base SVD cut': svdcut,
+                '10x SVD cut': 10*svdcut,
+                '0.1x SVD cut': 0.1*svdcut,
+                'No SVD cut': None
+            }
+        else:
+            svdcuts = {'Base SVD cut': None}
+
+        masks = self.get_masks(data)  # Masks for dropping parts of the dataset
+
+        scale = data_tables.ScaleSetting()
+        ctm = data_tables.ContinuumConstants()
+        lam = gv.mean(700 * scale.w0_fm / ctm.hbarc)
+
+        results = []
+
+        # Fit all models (e.g., HardSU2, HardSU2Continuum, Logless)
+        for model_name, model_fcn in self.models[channel].items():
+            print("Starting fits for", model_name)
+            if model_name == 'LogLess':
+                model = model_fcn(channel, self.process, lam=lam)
+            else:
+                if ('continuum' in model_name):
+                    continuum_logs = True
+                else:
+                    continuum_logs = False
+                if channel == 'f_0':
+                    _channel = 'f_parallel'
+                else:
+                    _channel = channel
+                model = model_fcn(_channel, self.process, lam=lam, continuum_logs=continuum_logs)
+            wrapped = fitting.WrappedModel(model)
+            model_continuum = model_fcn(channel, self.process, lam=lam, continuum=True)
+            continuum = fitting.ContinuumLimit(model.process)
+
+            # Fit data after applying different cuts
+            for mask_label, mask in tqdm(masks.items()):
+                mask = mask & (data['form_factor_type'] == form_factor_type)
+                x, y_data = fitting.build_fit_data(data[mask], mother_name=self.mother_name)
+
+                # Fit using different variations on the model
+                # E.g, try different treatments of lattice artifacts
+                priors = fitting.ModelVariations(model.process, model_name).priors
+                for label, prior in priors.items():
+                    # Skip simultaneous variation of the data and the model
+                    # in order to keep the total number of fits down to a
+                    # manageable number.
+                    if (label not in ('NNLO',)) & (mask_label not in ('full', 'mh/mc <= 1.1')):
+                        continue
+
+                    for svdcut_label, svdcut in svdcuts.items():
+                        is_base = self.is_base_fit(model_name, mask_label, label)
+                        if (svdcut_label != 'Base SVD cut') & (not is_base):
+                            # Only vary the SVD cut for the base fit
+                            continue
+
+                        fit = lsqfit.nonlinear_fit(data=(x, y_data), fcn=wrapped, prior=prior, debug=True, svdcut=svdcut, **kwargs)
+                        fit = serialize.SerializableNonlinearFit(fit)
+                        y_ctm = model_continuum(continuum.x, fit.p)
+                        result = fit.serialize()
+                        result['form_factor_type'] = form_factor_type
+                        result['model_name'] = model_name
+                        result['model'] = model
+                        result['model_ctm'] = model_continuum
+                        result['continuum'] = continuum
+                        result['label'] = label
+                        result['dataset'] = mask_label
+                        result['fit'] = fit
+                        result['process'] = self.process
+                        result['channel'] = channel
+                        result['f(q2max)'] = y_ctm[0]
+                        result['f(q2=0)'] = y_ctm[-1]
+                        result['f(q2=middle)'] = y_ctm[len(y_ctm)//2]
+                        result['f'] = y_ctm
+                        result['svdcut'] = svdcut
+                        result['svdcut_label'] = svdcut_label
+                        results.append(result)
+        return pd.DataFrame(results)
+
 
 def run_fits(process, data, noise_cut=0.2, **kwargs):
     """
@@ -468,7 +676,7 @@ def run_fits(process, data, noise_cut=0.2, **kwargs):
                         else:
                             run_svdcuts = [svdcut]
                         for svdcut in run_svdcuts:
-                            fit = lsqfit.nonlinear_fit(data=(x, y_data), fcn=wrapped, prior=prior, debug=True, svdcut=svdcut, **kwargs)
+                            fit = lsqfit.nonlinear_fit(data=(x, y_data), fcn=wrapped, prior=prior, debug=True, noise=False, svdcut=svdcut, **kwargs)
                             fit = serialize.SerializableNonlinearFit(fit)
                             y_ctm = model_continuum(continuum.x, fit.p)
                             result = fit.serialize()
