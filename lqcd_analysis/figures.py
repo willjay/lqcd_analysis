@@ -266,7 +266,7 @@ def relativistic_dispersion(dataframe, ax=None, x_offset=0, alpha_v=None, **kwar
         ax = plt.errorbar(ax, x, y, color='k', fmt='--', label=r"$1 \pm \alpha_V(a/2) a^2 p^2$")
 
     # Formatting
-    ax.set_xlabel(r"$\hat{p}^2$")
+    ax.set_xlabel(r"$\hat{\mathbf{n}}^2$")
     ax.set_ylabel(r"$E^2/(p^2 + m^2)$")
     xticks = dataframe['phat2'].values
     ax.set_xticks(xticks)
@@ -345,7 +345,7 @@ def overlap(dataframe, ax, x_offset=0, alpha_v=None, a_fm=None, mass_dimension=2
         y = y_rest * (1.0 - gv.mean(alpha_v) * np.linspace(0, max(p2)))
         ax = plt.errorbar(ax, x, y, color='k', fmt='--', label=r"$1 \pm \alpha_V(a/2) a^2 p^2$")
 
-    ax.set_xlabel(r"$\hat{p}^2$")
+    ax.set_xlabel(r"$\hat{\mathbf{n}}^2$")
     if a_fm is None:
         ax.set_ylabel(r"$\langle 0| O | {\rm hadron} \rangle$ [GeV$^2$]")
     else:
