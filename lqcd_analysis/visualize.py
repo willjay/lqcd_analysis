@@ -135,3 +135,20 @@ def axvspan(ax, x, **kwargs):
     mean = gv.mean(x)
     err = gv.sdev(x)
     ax.axvspan(mean - err, mean + err, **kwargs)
+
+def get_colors():
+    """Gets a dict of colors"""
+    pal = sns.color_palette()
+    return {
+        'blue': pal[0],
+        'orange': pal[1],
+        'green': pal[2],
+        'red': pal[3],
+        'purple': pal[4],
+        'brown': pal[5],
+        'pink': pal[6],
+        'grey': pal[7],
+        'yellow': pal[8],
+        'cyan': pal[9],
+        'black': 'k',
+    }
