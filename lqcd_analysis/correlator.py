@@ -261,7 +261,7 @@ class TwoPoint(object):
         _ = kwargs.pop('fmt', None)
         for ti, fmt in zip([0, 1], ['^', 'o']):
             y = 0.5 * effective_mass(self.ydata[ti::2])
-            x = np.arange(ti, 2*len(y), 2)
+            x = np.arange(ti, 2*len(y), 2) + 2
             if a_fm is not None:
                 y = y * 197 / a_fm
             mask = x < (tmax + 1)
