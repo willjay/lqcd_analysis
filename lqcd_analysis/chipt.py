@@ -8,6 +8,10 @@ import re
 import numpy as np
 import gvar as gv
 from . import analysis
+from . import finite_volume
+
+
+fv_shift = finite_volume.table_interpolator()
 
 
 GoldstoneBosons = namedtuple(
@@ -16,7 +20,7 @@ GoldstoneBosons = namedtuple(
     defaults=[None, None, None])
 
 
-def get_value(dict_list, key):
+def get_value(dict_list, key, extend=False, default=None):
     """
     Gets a value from a list of dicts.
     """
@@ -27,6 +31,8 @@ def get_value(dict_list, key):
         value = adict.get(f"log({key})")
         if value is not None:
             return np.exp(value)
+    if extend:
+        return default
     raise KeyError(f"Key '{key}' not found within dict_list.")
 
 
@@ -129,7 +135,7 @@ def analytic_terms(chi, params, continuum=False, order=None):
     return result
 
 
-def chiral_log_i1(mass, lam):
+def chiral_log_i1(mass, lam, mpiL=None):
     """
     Computes the chiral logarithm function I_1.
     See Eq. 46 of Aubin and Bernard
@@ -138,7 +144,10 @@ def chiral_log_i1(mass, lam):
     """
     lam2 = lam**2.
     mass2 = mass**2.
-    return mass2 * np.log(mass2 / lam2)
+    if mpiL is None:
+        return mass2 * np.log(mass2 / lam2)
+    else:
+        return mass2 * (np.log(mass2 / lam2) + 4 * fv_shift(mpiL))
 
 
 def chiral_log_i2(mass, delta, lam):
@@ -256,11 +265,11 @@ def taste_average(fcn, pions, *args, **kwargs):
     ) / 16.
 
 
-def taste_average_i1(pions, lam):
+def taste_average_i1(pions, lam, mpiL=None):
     """
     Computes the taste-averaged evaluation of I1.
     """
-    return taste_average(chiral_log_i1, pions, lam)
+    return taste_average(chiral_log_i1, pions, lam, mpiL=mpiL)
 
 
 def taste_average_i2(pions, delta, lam):
@@ -286,7 +295,7 @@ def form_factor_tree_level(c_leading, energy, delta, self_energy=0., form_factor
     literature. For example,
 
     Eqs. (3.20) and (3.21) of [https://arxiv.org/abs/1509.06235], J. Bailey et
-    al., PRD 93, 025026 (2016) "B -> Kl+l− decay form factors from three-flavor
+    al., PRD 93, 025026 (2016) "B -> Kl+l- decay form factors from three-flavor
     lattice QCD".
 
     Eq. (A2) of [https://arxiv.org/abs/1901.02561], A. Bazavov et al.,
@@ -312,16 +321,25 @@ def form_factor_tree_level(c_leading, energy, delta, self_energy=0., form_factor
     dimensionless in the literature.
     """
     # return gpi / (fpi * (energy + delta + self_energy))
-    if form_factor_name in ('f_perp', 'f_parallel', 'f_0'):
+    if form_factor_name in ('f_perp', 'f_parallel', 'f_0', 'f_plus'):
         # In physical terms, the leading constant c_leading = phi * g / fpi
         # return (phi * gpi) / (fpi * (energy + delta + self_energy))
         return c_leading / (energy + delta + self_energy)
+        # return c_leading / (1 + energy / delta)
     # elif form_factor_name == 'f_parallel':
     #     return phi / fpi
     elif form_factor_name == 'f_T':
         raise NotImplementedError(f"{form_factor_name} not implemented yet")
     else:
-        raise ValueError("Unrecognized form_factor_name {form_factor_name}")
+        raise ValueError(f"Unrecognized form_factor_name: {form_factor_name}")
+
+
+def form_factor_tree_level_pole(c_leading, q2, Mpole2):
+    """
+    The exact form of the pole is 1/(Mpole**2 - q2).
+    Here Mpole is the mass of the vector (1-) or scalar (0+).
+    """
+    return c_leading / (1 - q2/Mpole2)
 
 
 class StaggeredPions:
@@ -483,6 +501,17 @@ class ChiralExpansionParameters:
         return 2. * mu * m_strange / (8. * np.pi**2. * fpi**2.)
 
     @property
+    def dstrange(self):
+        """
+        Computes a dimensionless "mistuning" paramter for the kaon.
+        """
+        fpi = self._get('fpi')
+        # dm_heavy = self._get('dm_heavy')
+        # return 2. * mu * dm_heavy / (8. * np.pi**2. * fpi**2.)
+        dMK2 = self._get('dMK2')
+        return dMK2 / (8. * np.pi**2. * fpi**2.)
+
+    @property
     def heavy(self):
         """
         Computes the expansion parameter "x_h" for HQET discretization errors
@@ -535,7 +564,7 @@ class ChiralExpansionParameters:
         if key in ('l', 'light'):
             return self.light
         if key in ('s', 'strange'):
-            return self.strange
+            return self.dstrange
         if key in ('h', 'heavy'):
             return self.heavy
         if key in ('H', 'dheavy'):
@@ -554,7 +583,7 @@ class ChiralExpansionParameters:
         return (
             f"ChiralExpansionParamters(\n"
             f"    chi_light  = {self.light}\n"
-            f"    chi_strange = {self.strange}\n"
+            f"    chi_strange = {self.dstrange}\n"
             f"    chi_heavy  = {self.heavy}\n"
             f"    chi_dheavy = {self.dheavy}\n"
             f"    chi_a2     = {self.a2}\n"
@@ -595,7 +624,8 @@ class ChiralModel:
     """
     def __init__(self, form_factor_name, process, lam, continuum=False):
         valid_names = [
-            'f_parallel', r'f_\parallel', 'f_perp', r'f_\perp', 'f_0', 'f_T'
+            'f_parallel', r'f_\parallel', 'f_perp', r'f_\perp', 'f_0', 'f_T',
+            'f_plus',
         ]
         valid_processes = [
             'D to pi', 'B to pi',
@@ -648,10 +678,10 @@ def convert_to_w0_units(xdict):
     and the other input parameters (like the quark masses).
     """
     w0 = xdict['w0']
-    dim0 = ['alpha_s', 'units']
+    dim0 = ['alpha_s', 'units', 'Mpi*L']
     dim1 = ['fpi', 'm_light', 'm_strange', 'm_heavy', 'dm_heavy',
             'mpi5', 'mK5', 'mS5', 'mu', 'M_mother', 'M_daughter', 'E']
-    dim2 = ['dMH2', 'DeltaBar']
+    dim2 = ['dMH2', 'DeltaBar', 'dMK2', 'q2']
     result = {}
     for key, value in xdict.items():
         if (key in dim0) or (key == 'w0'):
@@ -661,7 +691,7 @@ def convert_to_w0_units(xdict):
         elif (key in dim2):
             result[key] = value * w0**2
         else:
-            raise ValueError("Unexpected key")
+            raise ValueError("Unexpected key", key)
     return result
 
 
@@ -713,7 +743,9 @@ class LogLessModel(ChiralModel):
         # Extract values from inputs
         leading = get_value(dict_list, 'leading')
         energy = get_value(dict_list, 'E')
+        # q2 = get_value(dict_list, 'q2')
         delta = get_value(dict_list, 'delta_pole')
+        # pole = get_value(dict_list, 'pole')
         sigma = 0  # Take the self energy to vanish
 
         # Get the analytic terms
@@ -723,6 +755,7 @@ class LogLessModel(ChiralModel):
         # Leading-order x (corrections )
         name = self.form_factor_name
         tree = form_factor_tree_level(leading, energy, delta, sigma, name)
+        # tree = form_factor_tree_level_pole(leading, q2, pole)
         return tree * (1 + analytic)
 
     def breakdown(self, *args):
@@ -737,7 +770,9 @@ class LogLessModel(ChiralModel):
         # Extract values from inputs
         leading = get_value(dict_list, 'leading')
         energy = get_value(dict_list, 'E')
+        # q2 = get_value(dict_list, 'q2')
         delta = get_value(dict_list, 'delta_pole')
+        # pole = get_value(dict_list, 'pole')
         sigma = 0  # Take the self energy to vanish
 
         # Get the analytic terms
@@ -749,6 +784,7 @@ class LogLessModel(ChiralModel):
         # Leading-order x (corrections )
         name = self.form_factor_name
         tree = form_factor_tree_level(leading, energy, delta, sigma, name)
+        # tree = form_factor_tree_level_pole(leading, q2, pole)
         # return tree * (1 + analytic)
         return {
             'tree': tree,
