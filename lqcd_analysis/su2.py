@@ -43,11 +43,14 @@ class BaseSU2Model(chipt.ChiralModel):
         leading = chipt.get_value(dict_list, 'leading')
         gpi = chipt.get_value(dict_list, 'g')
         fpi = chipt.get_value(dict_list, 'fpi')
+        mpiL = chipt.get_value(dict_list, 'Mpi*L', extend=True, default=None)
         energy = chipt.get_value(dict_list, 'E')
         delta = chipt.get_value(dict_list, 'delta_pole')
+        # q2 = chipt.get_value(dict_list, 'q2')
+        # pole = chipt.get_value(dict_list, 'pole')
         # Get the chiral logarithms
         pions = chipt.StaggeredPions(_x, params, continuum=(self.continuum or self.continuum_logs))
-        logs = self.delta_logs(fpi, gpi, pions, energy)
+        logs = self.delta_logs(fpi, gpi, pions, energy, mpiL=mpiL)
         sigma = self.self_energy(fpi, gpi, pions, energy)
         # Get the analytic terms
         chi = chipt.ChiralExpansionParameters(_x, params)
@@ -55,6 +58,7 @@ class BaseSU2Model(chipt.ChiralModel):
         # Leading-order x (corrections )
         name = self.form_factor_name
         tree = chipt.form_factor_tree_level(leading, energy, delta, sigma, name)
+        # tree = chipt.form_factor_tree_level_pole(leading, q2, pole)
         return tree * (1 + logs + analytic)
 
     def breakdown(self, *args):
@@ -69,11 +73,14 @@ class BaseSU2Model(chipt.ChiralModel):
         leading = chipt.get_value(dict_list, 'leading')
         gpi = chipt.get_value(dict_list, 'g')
         fpi = chipt.get_value(dict_list, 'fpi')
+        mpiL = chipt.get_value(dict_list, 'Mpi*L', extend=True, default=None)
         energy = chipt.get_value(dict_list, 'E')
+        # q2 = chipt.get_value(dict_list, 'q2')
         delta = chipt.get_value(dict_list, 'delta_pole')
+        # pole = chipt.get_value(dict_list, 'pole')
         # Get the chiral logarithms
         pions = chipt.StaggeredPions(x, params, continuum=(self.continuum or self.continuum_logs))
-        logs = self.delta_logs(fpi, gpi, pions, energy)
+        logs = self.delta_logs(fpi, gpi, pions, energy, mpiL=mpiL)
         sigma = self.self_energy(fpi, gpi, pions, energy)
         # Get the analytic terms
         chi = chipt.ChiralExpansionParameters(x, params)
@@ -84,6 +91,7 @@ class BaseSU2Model(chipt.ChiralModel):
         name = self.form_factor_name
         # tree = chipt.form_factor_tree_level(phi, gpi, fpi, energy, delta, sigma, name)
         tree = chipt.form_factor_tree_level(leading, energy, delta, sigma, name)
+        # tree = chipt.form_factor_tree_level_pole(leading, q2, pole)
         return {
             'tree': tree,
             # 'log_corrections': c_0 * tree * logs,
@@ -113,7 +121,7 @@ class HardSU2Model(BaseSU2Model):
         """
         return 0.0
 
-    def delta_logs(self, fpi, gpi, pions, *args):
+    def delta_logs(self, fpi, gpi, pions, *args, mpiL=None):
         """
         Computes the full chiral logarithm for SU(2) hard K/pi EFT.
         Note:
@@ -125,16 +133,16 @@ class HardSU2Model(BaseSU2Model):
         """
         g2 = gpi**2.
 
-        def combo(mass):
-            return chipt.chiral_log_i1(mass, self.lam)
+        def combo(mass, mpiL):
+            return chipt.chiral_log_i1(mass, self.lam, mpiL=mpiL)
         # Taste-averaged terms
-        result = -1. * chipt.taste_average_i1(pions, self.lam)
+        result = -1. * chipt.taste_average_i1(pions, self.lam, mpiL=mpiL)
         # Scalar pion terms
-        result += 0.25 * chipt.chiral_log_i1(pions.m_i, self.lam)
+        result += 0.25 * chipt.chiral_log_i1(pions.m_i, self.lam, mpiL=mpiL)
         # Vector pion and eta terms
-        result += combo(pions.m_v) - combo(pions.meta_v)
+        result += combo(pions.m_v, mpiL=mpiL) - combo(pions.meta_v, mpiL=mpiL)
         # Axial pion and eta terms
-        result += combo(pions.m_a) - combo(pions.meta_a)
+        result += combo(pions.m_a, mpiL=mpiL) - combo(pions.meta_a, mpiL=mpiL)
         # Normalization
         result /= (4. * np.pi * fpi)**2.
         if self.process in ('B to pi', 'D to pi'):
