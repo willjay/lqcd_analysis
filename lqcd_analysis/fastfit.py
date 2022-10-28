@@ -115,7 +115,7 @@ class FastFit(object):
             d_data += s * aj * g(Ej, t)
 
         # Sum the full tower of oscillating states
-        if ao is not None and dEo is not None:
+        if (osc) and (ao is not None) and (dEo is not None):
             Eo = np.cumsum(dEo)
             for aj, Ej in zip(ao, Eo):
                 d_data += so * aj * g(Ej, t) * (-1) ** t
@@ -133,7 +133,7 @@ class FastFit(object):
                                     svdcut=svdcut, prior=a[0])
         else:
             LOGGER.warn(
-                'Cannot estiamte energy in FastFit: cosh(E) = %s', 
+                'Cannot estiamte energy in FastFit: cosh(E) = %s',
                 str(ratio)
             )
             self.E = None
@@ -182,7 +182,7 @@ class FastFit(object):
             self.ampl.chi2 / self.ampl.dof, self.E.dof, self.E.Q, self.ampl.Q,
             self.tmin, self.tmax
         )
-    # pylint: enable=invalid-name,protected-access 
+    # pylint: enable=invalid-name,protected-access
     def to_dict(self):
         return {
             'energy': str(self.E),
@@ -192,7 +192,7 @@ class FastFit(object):
             'nterm': self.nterm,
             'osc': self.osc,
         }
-            
+
 
 FFRatioPrior = collections.namedtuple(
     'FFRatioPrior',
