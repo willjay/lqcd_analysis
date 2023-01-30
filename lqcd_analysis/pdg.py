@@ -129,7 +129,7 @@ def scale_mass(state, alias_light, alias_heavy):
         raise ValueError(
             "Unrecognized quarks for a kaon. Found %s, %s" %
             (alias_light, alias_heavy))
-
+    
     if heavy_quark != 'charm':
         raise ValueError(
             "Unrecognized heavy quark for B or D mesons. Found %s"
