@@ -57,12 +57,14 @@ def errorbar(ax, x, y, bands=False, **kwargs):
         ax.errorbar(x=x, y=y, **kwargs)
         facecolor = kwargs.get('color', ax.lines[-1].get_color())
         alpha = kwargs.get('alpha', 1.0)
+        zorder = kwargs.get('zorder', None)
         ax.fill_between(
             x,
             y - yerr,
             y + yerr,
             facecolor=facecolor,
-            alpha=alpha)
+            alpha=alpha,
+            zorder=zorder)
     else:
         if ('marker' in kwargs) and ('fmt' in kwargs):
             _ = kwargs.pop('fmt')
