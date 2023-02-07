@@ -78,12 +78,13 @@ class ConformalMap:
             daughter = ctm.pdg['pi']
             return mother, daughter
 
-    def z(self, q2):
+    def z(self, q2, t0=None):
         """
         Computes the dimensional parameter z.
         """
         tplus = self.tplus
-        t0 = self.t0
+        if t0 is None:
+            t0 = self.t0
         return (np.sqrt(tplus - q2) - np.sqrt(tplus - t0)) / (np.sqrt(tplus - q2) + np.sqrt(tplus - t0))
 
     def ztoq2(self, z):
@@ -308,3 +309,93 @@ class ZFitter3:
         self.build_fit_splines(fit, use_poles)
 
         return serialize.SerializableNonlinearFit(fit)
+
+class ZFitterExpt:
+    """
+    Fitter class for the z-expansion used by experiments, which takes the form
+    fplus(q2) = 1/(z(q2, Mpole^2) * phi(q2)) * sum_{n=0}^{N-1} a_n z^n
+    """
+    def __init__(self, process):
+        self.process = process
+        self.zexpan = ConformalMap(process, t0='BESIII')
+
+    def z(self, *args, **kwargs):
+        return self.zexpan.z(*args, *kwargs)
+
+    @property
+    def t0(self):
+        return self.zexpan.t0
+
+    @property
+    def tplus(self):
+        return self.zexpan.tplus
+
+    @property
+    def tminus(self):
+        return self.zexpan.tminus
+
+    @property
+    def mpole(self):
+        return self.zexpan.get_pole('vector')
+
+    def get_q2_bounds(self, GeV=True):
+        q2min, q2max = self.zexpan.get_q2_bounds()
+        if GeV:
+            q2min = q2min*1e-6
+            q2max = q2max*1e-6
+        return q2min, q2max
+
+    def phi(self, q2):
+        """
+        Compute the outer function phi(q2).
+        Args:
+            q2_MeV: numpy.ndarray, momentum transfer in GeV^2.
+        """
+        GeV2 = 1e-6
+        z = self.z
+        mc = 1.25  # GeV
+        t0 = self.t0 * GeV2
+        tplus = self.tplus * GeV2
+        tminus = self.tminus * GeV2
+        q2_GeV = q2
+        q2_MeV = q2 / GeV2
+        pieces = [np.zeros(len(q2_MeV)) for _ in range(5)]
+        pieces[0] = np.sqrt(np.pi/3) * mc * np.ones(len(q2_MeV))
+        pieces[1][1:] = (z(q2_MeV[1:], 0) / -q2_GeV[1:])**2.5
+        # Handle pole at q2=0 by hand
+        pieces[1][0] = (1 / (4*tplus))**2.5
+        pieces[2] = (z(q2_MeV, self.t0) / (t0 - q2_GeV))**(-0.5)
+        pieces[3][:-1] = (z(q2_MeV[:-1], self.tminus) / (tminus - q2_GeV[:-1]))**(-0.75)
+        # Handle pole at q2max by hand
+        pieces[3][-1] = (1 / 4/(tplus - tminus))**(-0.75)
+        pieces[4] = (tplus - q2_GeV) / (tplus - t0)**0.25
+        phi = np.product(pieces, axis=0)
+        return phi
+
+    def model_fplus(self, x, p):
+        """
+        Args:
+            x: dict with key 'q2' and values assumed to be in GeV^2.
+            p: dict with key 'a'
+        """
+        q2_GeV = x['q2']
+        q2_MeV = q2_GeV * 1e6
+        z = self.z(q2_MeV)
+        phi = self.phi(q2_GeV)
+        z_outer = 1
+        if self.process == 'D to K':
+            z_outer = self.z(q2_MeV, self.mpole**2)
+        return 1/(z_outer * phi) * np.sum([pn * z**n for n, pn in enumerate(p['a'])], axis=0)
+
+    def __call__(self, x, y, nterms=3, **kwargs):
+        """
+        Runs a fit to the z-expansion.
+        Args:
+            x: dict with key 'q2' and values assumed to be in GeV^2.
+            y: np.ndarray, the data for fplus
+            nterms: int, the number of terms used in the z-expansion. Default 3
+            kwargs: keyword arguments passes to lsqfit.nonlinear_fit
+        """
+        p0 = {'a': [0 for _ in range(nterms)]}
+        fit = lsqfit.nonlinear_fit(udata=(x, y), fcn=self.model_fplus, p0=p0, **kwargs)
+        return fit
