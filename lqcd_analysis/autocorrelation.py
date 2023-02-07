@@ -22,6 +22,41 @@ def moving_average(a, n=3) :
     return ret[n - 1:] / n
 
 
+def compute_tau(samples, c=10):
+    """
+    Computes the integrated autocorrelation time.
+
+    Asymptotically, the autocorrelation function should behave as
+    C(t) ~ exp(-t/tau),
+    where tau is the longest autocorrelation time in the system.
+    Letting t become artibrarily large and focusing on the contribution
+    from the slow mode, gives the following result for the integrated
+    autocorrelation function:
+    \int_{t=0}^{tmax} dt C(t) = tau * (1 - exp(-tmax/tau)).
+    For large times, the integrated autocorrelation function should plateau
+    at the value of autocorrelation time tau.
+    For this reason, the integral is sometimes called the integrated
+    autocorrelation time and denoted tau(tmax). Becuase tau(tmax) decays
+    exponentially, it tends to become noisy for large tmax.
+
+    See the discussion here https://dfm.io/posts/autocorr/
+    This page references lecture notes by A. Sokal.
+    The key useful point is to estimate the integrated autocorrelation
+    time by picking some t << Nt (N is the number of Monte Carlo samples)
+    such that:
+        t >= C x tau(t)
+        or
+        t/tau(t) >= C
+    where C is a constant numerically near 5, to be determined empirically.
+    """
+    acorr = autocorr(samples)
+    # if acorr[1] < 0.05:
+    #     return 1
+    tau = 2*(0.5 + np.cumsum(acorr[1:]))
+    tmax = np.arange(len(tau))
+    return tau[np.argmax(tmax/tau > c)]
+
+
 class AutoCorrelation:
     def __init__(self, data):
         """
@@ -36,14 +71,15 @@ class AutoCorrelation:
         binned = dataset.avg_bin(self.data, binsize=binsize)
         # Autocorrelation fucntion
         acorr = autocorr(binned[:, t])
-        # Integrated autocorrelation time
-        tau = 1 + 2*np.cumsum(acorr)
-
-        if acorr[1] < 0.05:
-            tau_final = 1
-        else:
-            stop = np.argmax(np.arange(len(tau)) >= (5*tau))
-            tau_final = tau[stop]
+        tau = 2*(0.5 + np.cumsum(acorr[1:]))
+        tau_final = compute_tau(binned[:, t])
+        # # Integrated autocorrelation time
+        # tau = 1 + 2*np.cumsum(acorr)
+        # if acorr[1] < 0.05:
+        #     tau_final = 1
+        # else:
+        #     stop = np.argmax(np.arange(len(tau)) >= (5*tau))
+        #     tau_final = tau[stop]
         self.tau_final = tau_final
         return acorr, tau, tau_final
 
@@ -75,8 +111,12 @@ class AutoCorrelation:
         ax1.axhline(y=0, color='k', ls='--')
         ax1.legend(loc=0)
 
+        plt.errorbar(ax=ax1, x=x, y=np.exp(-x/tau_final)*acorr[1], fmt='-', color='k')
+        plt.errorbar(ax=ax1, x=x, y=np.exp(-x/(0.5*tau_final))*acorr[1], fmt='-', color='orange')
+
         # Plot the integrated autocorrelation time
-        plt.errorbar(ax2, x, tau[:100], fmt='.')
+        y = np.arange(100)/tau[:100]
+        plt.errorbar(ax2, x, y, fmt='.')
         ax2.axhline(y=tau_final, color='k', ls='--')
         ax1.axvline(x=tau_final, color='k', ls='--')
 
