@@ -17,6 +17,7 @@ from . import utils
 from . import staggered
 from . import pdg
 from . import resample
+from . import autocorrelation as ac
 
 LOGGER = logging.getLogger(__name__)
 
@@ -208,6 +209,61 @@ def decomp_blocks(corr_blocked, ordered_tags, sizes):
     return corr_dict
 
 
+def correct_covariance_autocorr(data, tau=1, shrink_choice=None, ordered_tags=None, bstrap=False):
+    """
+    doc here
+    """
+    print("Rescaling with estimate of autocorrelation time")
+    if ordered_tags is None:
+        ordered_tags = sorted(data.keys(), key=str)
+    # shapes are (n,p), where n is nsamples and p is ndata
+    try:
+        sizes = [data[tag].shape[1] for tag in ordered_tags]
+    except IndexError:
+        # edge case: single datum per sample
+        sizes = [1 for tag in ordered_tags]
+    total_size = np.sum(sizes)
+
+    shrink_fcns = {
+        'RBLW': shrink.rblw_shrink_correlation_identity,
+        'OA': shrink.oa_shrink_correlation_identity,
+        'LW': shrink.lw_shrink_correlation_identity,
+        'nonlinear': nonlinear_shrink,
+    }
+
+    # Inflate the error by sqrt(tau)
+    cov = gv.evalcov(gv.dataset.avg_data(data, bstrap=bstrap))
+    err = {}
+    sqrt_tau = np.sqrt(tau)
+    for key1, key2 in cov:
+        if key1 == key2:
+            err[key1] = sqrt_tau * np.diag(np.sqrt(np.diag(cov[(key1, key2)])))
+
+    # Estimate correlations from shrunken correlation matrices
+    if shrink_choice is None:
+        # No shrinkage -- take correlations from full dataset
+        corr_shrink = gv.evalcorr(gv.dataset.avg_data(
+            {tag: data[tag] for tag in ordered_tags}))
+    else:
+        # Carry out the desired shrinkage
+        samples = np.hstack([data[tag] for tag in ordered_tags])
+        if total_size == len(ordered_tags):
+            # edge case: single datum per sample
+            samples = samples.reshape(-1, len(ordered_tags))
+        kwargs = {}
+        if shrink_choice == 'nonlinear':
+            kwargs['n_eff'] = samples.shape[0] // tau
+        (_, corr_shrink_concat) = shrink_fcns[shrink_choice](samples, **kwargs)
+        corr_shrink = decomp_blocks(corr_shrink_concat, ordered_tags, sizes)
+    # Correlate errors according to the shrunken correlation matrix
+    final_cov = {}
+    for k1, k2 in corr_shrink:
+        # err x corr x err
+        final_cov[(k1, k2)] = err[k1] @ corr_shrink[(k1, k2)] @ err[k2]
+
+    return final_cov
+
+
 def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None,
                        bstrap=False, inflate=1.0):
     """
@@ -224,6 +280,7 @@ def correct_covariance(data, binsize=1, shrink_choice=None, ordered_tags=None,
     Returns:
         final_cov: the final correct covariance "matrix" as a dictionary
     """
+    print("Rescaling with binning")
     if ordered_tags is None:
         ordered_tags = sorted(data.keys(), key=str)
     # shapes are (n,p), where n is nsamples and p is ndata
@@ -403,6 +460,10 @@ class FormFactorDataset(object):
         for nt in nts:
             if not np.all(nt == nts[0]):
                 raise ValueError('tdata does not match across correlators')
+        if self.c2_src.times.tmax < self.c2_src.times.tmin:
+            raise ValueError("Bad tmin/tmax for source 2pt function")
+        if self.c2_snk.times.tmax < self.c2_snk.times.tmin:
+            raise ValueError("Bad tmin/tmax for sink 2pt function")
 
     def set_masses(self, m_src=None, m_snk=None):
         """Update the masses of the source and sink manually."""
