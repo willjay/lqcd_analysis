@@ -243,7 +243,7 @@ class FormFactor(DictLike):
         self.m_mother = get_mq(quark_alias=self.mother, **kwargs)
         self.m_daughter = get_mq(quark_alias=self.daughter, **kwargs)
         self.m_spectator = get_mq(quark_alias=self.spectator, **kwargs)
-
+    
     def identify_daughter_quarks(self):
         """
         Identifies which quarks to take as the "heavy" and "light" quarks inside a daughter hadron.
@@ -254,13 +254,13 @@ class FormFactor(DictLike):
         two. Correctly estimating the mass of the daughter hadron requires correctly handling
         either possibility.
         """
-        if self.transition_name in ['D to pi', 'B to pi', 'Ds to K', 'Bs to Ds', 'Bs to K']:
+        if self.transition_name in ['D to pi', 'B to pi', 'Ds to K', 'Bs to K']:
             # For pions, masses are degenerate, so light/heavy is arbitrary
             # For K and Ds, the spectator is strange, and the daughter quark is a
             # light quark.
             alias_light = self.daughter
             alias_heavy = self.spectator
-        elif self.transition_name in ['B to K', 'D to K', 'B to D']:
+        elif self.transition_name in ['B to K', 'D to K', 'B to D', 'Bs to Ds']:
             # Spectator is a light quark. Daughter quark is a strange quark
             alias_light = self.spectator
             alias_heavy = self.daughter
@@ -345,6 +345,7 @@ class ResultFormFactor(DictLike):
         form_factor.ens_id = ensemble.fetch_id(engine)
         result = self.asdict()
         result['form_factor_id'] = form_factor.fetch_id(engine)
+        result['matrix_element'] = str(self.matrix_element)
         with connection_scope(engine) as conn:
             queries.write_result_form_factor(conn, **result)
 

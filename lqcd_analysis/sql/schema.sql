@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS result_form_factor
     dof integer not NULL,
     nparams integer not NULL,
     npoints integer not NULL,
+    matrix_element text not NULL, -- gvar
     UNIQUE(
         form_factor_id, tmin_src, tmax_src, tmin_snk, tmax_snk,
         n_decay_src, n_oscillating_src, n_decay_snk, n_oscillating_snk)

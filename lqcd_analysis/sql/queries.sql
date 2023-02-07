@@ -23,7 +23,7 @@ INSERT INTO result_form_factor(
     params, prior, prior_alias, r, r_guess,
     energy_src, energy_snk, amp_src, amp_snk,
     aic, chi2_aug, chi2, chi2_per_dof, model_probability,
-    p_value, q_value, dof, nparams, npoints
+    p_value, q_value, dof, nparams, npoints, matrix_element
 )
 VALUES (
     :form_factor_id, :calcdate,
@@ -32,7 +32,7 @@ VALUES (
     :params, :prior, :prior_alias, :r, :r_guess,
     :energy_src, :energy_snk, :amp_src, :amp_snk,
     :aic, :chi2_aug, :chi2, :chi2_per_dof, :model_probability,
-    :p_value, :q_value, :dof, :nparams, :npoints)
+    :p_value, :q_value, :dof, :nparams, :npoints, :matrix_element)
 ON CONFLICT (
     form_factor_id,
     tmin_src, tmax_src, tmin_snk, tmax_snk,
@@ -42,10 +42,10 @@ DO UPDATE SET (
     params, prior, prior_alias, r, r_guess,
     energy_src, energy_snk, amp_src, amp_snk,
     aic, chi2_aug, chi2, chi2_per_dof, model_probability,
-    p_value, q_value, dof, nparams, npoints)
+    p_value, q_value, dof, nparams, npoints, matrix_element)
     =(
     :calcdate,
     :params, :prior, :prior_alias, :r, :r_guess,
     :energy_src, :energy_snk, :amp_src, :amp_snk,
     :aic, :chi2_aug, :chi2, :chi2_per_dof, :model_probability,
-    :p_value, :q_value, :dof, :nparams, :npoints);
+    :p_value, :q_value, :dof, :nparams, :npoints, :matrix_element);

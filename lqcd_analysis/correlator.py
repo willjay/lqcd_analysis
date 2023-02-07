@@ -372,6 +372,8 @@ class ThreePoint(object):
 
         c3bar = {}
         t_snks = np.sort(np.array(self.t_snks))
+        #dt_snks = t_snks[1:] - t_snks[:-1]
+        #dt_snks = np.append(dt_snks, 0)
         # pylint: disable=invalid-name,protected-access
         for T in t_snks:
             c3 = self.ydict[T]  # C(t, T)

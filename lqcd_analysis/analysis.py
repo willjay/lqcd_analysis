@@ -505,6 +505,7 @@ class FormFactorAnalysis(object):
         payload['n_decay_hl'] = nstates.m
         payload['n_oscillating_ll'] = nstates.no
         payload['n_oscillating_hl'] = nstates.mo
+        payload['matrix_element'] = self.matrix_element
         return payload
 
     def plot_results(self, ax=None):
@@ -817,3 +818,11 @@ class SequentialFitter:
         print("Plateau, direct:", self.r_direct)
         print("Ratio of results 'ratio/direct':", self.r_ratio / self.r_direct)
 
+        y = self.buildy()
+        if fitter_kwargs.get("prior") is None:
+            fitter_kwargs["prior"] = self.buildprior()
+        fit = lsqfit.nonlinear_fit(data=y, fcn=self.fitfcn, **fitter_kwargs)
+        if np.isnan(fit.chi2) or np.isinf(fit.chi2):
+            LOGGER.warning('Full joint fit failed.')
+            fit = None
+        return fit
