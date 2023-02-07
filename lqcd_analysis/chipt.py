@@ -130,7 +130,10 @@ def analytic_terms(chi, params, continuum=False, order=None):
                     # order alpha_s (a Lamba)^2 and alpha_s (a m_h)**2, respectively.
                     # See discussion around Eqs (5.15 and 5.16) in
                     # [https://arxiv.org/pdf/1712.09262.pdf]
-                    term *= (alpha_s * v_by_c)**int(power/2)
+                    if power <= 2:
+                        term *= (alpha_s * v_by_c)**int(power/2)
+                    else:
+                        term *= v_by_c
             result += term
     return result
 
