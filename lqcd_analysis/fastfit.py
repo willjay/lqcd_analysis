@@ -89,7 +89,7 @@ class FastFit(object):
 
         else:
             raise ValueError('FastFit: bad tp')
-
+        tmin, tmax = int(tmin), int(tmax)
         t = np.arange(len(data))[tmin:tmax]
         data = data[tmin:tmax]
 
