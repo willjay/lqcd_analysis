@@ -202,10 +202,13 @@ class TwoPoint(object):
         c2bar = np.empty((tmax,), dtype=gv._gvarcore.GVar)
         # pylint: enable=protected-access
         for t in range(tmax):
-            c2bar[t] = c2[t] / np.exp(-mass * t)
-            c2bar[t] += 2 * c2_tp1s[t] / np.exp(-mass * (t + 1))
-            c2bar[t] += c2_tp2s[t] / np.exp(-mass * (t + 2))
-            c2bar[t] *= np.exp(-mass * t)
+            try:
+                c2bar[t] = c2[t] / np.exp(-mass * t)
+                c2bar[t] += 2 * c2_tp1s[t] / np.exp(-mass * (t + 1))
+                c2bar[t] += c2_tp2s[t] / np.exp(-mass * (t + 2))
+                c2bar[t] *= np.exp(-mass * t)
+            except ZeroDivisionError:
+                c2bar[t] = np.nan
         return c2bar / 4.
 
     def __getitem__(self, key):
@@ -346,7 +349,7 @@ class ThreePoint(object):
             except ValueError as _:
                 raise ValueError("Values in ydict must have same length.")
 
-    def avg(self, m_src, m_snk):
+    def avg(self, m_src, m_snk, tmax=None):
         """
         Computes a time-slice-averaged three-point correlation function.
         Generalizes Eq. 38 of Bailey et al PRD 79, 054507 (2009)
@@ -376,9 +379,14 @@ class ThreePoint(object):
         #dt_snks = np.append(dt_snks, 0)
         # pylint: disable=invalid-name,protected-access
         for T in t_snks:
-            c3 = self.ydict[T]  # C(t, T)
-            t = np.arange(len(c3))
-            ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T-t))
+            c3 = self.ydict[T][:tmax]  # C(t, T)
+            t = np.arange(len(c3))[:tmax]
+            denom = np.exp(-m_src*t) * np.exp(-m_snk*(T-t))
+            # ratio = c3 / np.exp(-m_src*t) / np.exp(-m_snk*(T-t))
+            try:
+                ratio = c3 / denom
+            except ZeroDivisionError:
+                ratio = c3 / gv.mean(denom)
             tmp = _combine(ratio)
             c3bar[T] = tmp * np.exp(-m_src*t) * np.exp(-m_snk*(T-t))
         # pylint: enable=invalid-name,protected-access

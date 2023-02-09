@@ -589,7 +589,7 @@ class FormFactorDataset(object):
         else:
             m_src = self.c2_src.mass_avg
             m_snk = self.c2_snk.mass_avg
-        return self.c3.avg(m_src=m_src, m_snk=m_snk)
+        return self.c3.avg(m_src=m_src, m_snk=m_snk, tmax=max(self.c3.t_snks))
 
     @property
     def r(self):
