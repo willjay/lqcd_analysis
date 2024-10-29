@@ -495,7 +495,10 @@ class FormFactorAnalysis(object):
         payload['tmax_ll'] = self.ds[self.ds.tags.src].times.tmax
         payload['tmax_hl'] = self.ds[self.ds.tags.snk].times.tmax
         payload['r'] = sanitize(self.r)
-        payload['r_guess'] = self.ds.r_guess
+        try:
+            payload['r_guess'] = float(self.ds.r_guess)
+        except:
+            payload['r_guess'] = self.fits['full'].prior['plateau']
         payload['is_sane'] = self.is_sane
         payload['prior_alias'] = prior_alias
         payload['pedestal'] = self.pedestal
