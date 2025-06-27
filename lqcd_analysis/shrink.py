@@ -196,7 +196,7 @@ def _pav(dat):
     return v
 
 
-def direct_nl_shrink(sample_ev, n):
+def direct_nl_shrink_old(sample_ev, n):
     """Computes direct nonlinear shrinkage."""
     isDesending = np.all(sample_ev[:-1] >= sample_ev[1:])
     if isDesending:
@@ -242,6 +242,64 @@ def direct_nl_shrink(sample_ev, n):
     if isDesending:
         dhat = np.flip(dhat, 0)
     return dhat
+
+def direct_nl_shrink(sample_ev, n):
+    """Computes direct nonlinear shrinkage."""
+    isDesending = np.all(sample_ev[:-1] >= sample_ev[1:])
+    if isDesending:
+        sam_ev = np.flip(sample_ev, 0)
+    else:
+        sam_ev = np.array(sample_ev)
+    p = len(sam_ev)
+    c = float(p) / n
+
+    # Original implementation was mis-inedexed for singular matrices
+    # lam = sam_ev[max(0, p - n):p]     # original
+    # Lt = np.tile(lam, (min(p, n), 1)) # original
+    lam = sam_ev[max(0, p - n + 1):p]   # non-zero eigenvalues
+    Lt = np.tile(lam, (min(p, n-1), 1))
+    L = np.transpose(Lt)
+
+    # Eq.(5.4) with updated -0.35 to -1/3 per https://doi.org/10.1214/19-AOS1921
+    h = float(n)**(-1/3)
+    hsq = h * h
+
+    # Eq.(5.2)
+    ftilde = np.sum(
+        np.sqrt(np.maximum(0., 4 * np.square(Lt) * hsq - np.square(L - Lt))) /
+        (2 * np.pi * np.square(Lt) * hsq), axis=1) / n
+
+    # Eq.(5.3)
+    Hftilde = np.sum(
+        (np.sign(L - Lt) *
+         np.sqrt(np.maximum(0., np.square(L - Lt) - 4 * np.square(Lt) * hsq)) -
+         L + Lt) / (2 * np.pi * np.square(Lt) * hsq),
+        axis=1) / n
+
+    if p < n:
+        # Eq.(4.3)
+        dtilde = lam / (np.square(np.pi * c * lam * ftilde) +
+                        np.square(1. - c - np.pi * c * lam * Hftilde))
+    else:
+        # Eq.(C.8)
+        Hftilde0 = (1. - np.sqrt(1. - 4. * hsq)) / \
+            (2. * np.pi * hsq) * np.sum(1. / lam) / n
+        # Eq.(C.5)
+        dtilde0 = 1. / (np.pi * float(p - n + 1) / n * Hftilde0)
+        # Eq.(C.4)
+        dtilde1 = lam / (np.pi**2 * np.square(lam) *
+                         (np.square(ftilde) + np.square(Hftilde)))
+        # Original implementation was mis-inedexed for singular matrices
+        # dtilde = np.concatenate(
+        #     (dtilde0 * np.ones((p - n,), dtype=np.float64), dtilde1)) # original
+        dtilde = np.concatenate(
+            (dtilde0 * np.ones((p - n + 1,), dtype=np.float64), dtilde1))
+    # Supplementary material https://doi.org/10.1214/19-AOS1921: final pav not needed
+    # Eq.(4.5)
+    # dhat = _pav(dtilde)
+    # if isDesending:
+    #     dhat = np.flip(dhat, 0)
+    return dtilde
 
 def linear_shrink(corr, lam=0, target=None):
     """

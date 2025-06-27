@@ -183,11 +183,13 @@ def nonlinear_shrink(samples, n_eff):
     # Shrink the eigenvalue spectrum
     vals_shrink = shrink.direct_nl_shrink(vals, n_eff)
     # Reconstruct eigenvalue matrix: vecs x diag(vals) x vecs^T
+    # Note: np.linal.eig is not guaranteed to return orthogonal eigenvectors if
+    # the matrix is singular. To handle the singular case, we must invert directly.
     corr_shrink = np.matmul(
                     vecs,
                     np.matmul(
                         np.diag(vals_shrink),
-                        vecs.transpose())
+                        np.linalg.inv(vecs))
                     )
     # Match output of other shrink functions
     pair = (None, corr_shrink)
