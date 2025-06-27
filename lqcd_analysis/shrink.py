@@ -196,53 +196,6 @@ def _pav(dat):
     return v
 
 
-def direct_nl_shrink_old(sample_ev, n):
-    """Computes direct nonlinear shrinkage."""
-    isDesending = np.all(sample_ev[:-1] >= sample_ev[1:])
-    if isDesending:
-        sam_ev = np.flip(sample_ev, 0)
-    else:
-        sam_ev = sample_ev
-    p = len(sam_ev)
-    c = float(p) / n
-    lam = sam_ev[max(0, p - n):p]  # non-zero eigenvalues
-    Lt = np.tile(lam, (min(p, n), 1))
-    L = np.transpose(Lt)
-    # Eq.(5.4)
-    h = float(n)**(-.35)
-    hsq = h * h
-    # Eq.(5.2)
-    ftilde = np.mean(
-        np.sqrt(np.maximum(0., 4 * np.square(Lt) * hsq - np.square(L - Lt))) /
-        (2 * np.pi * np.square(Lt) * hsq), axis=1)
-    # Eq.(5.3)
-    Hftilde = np.mean(
-        (np.sign(L - Lt) *
-         np.sqrt(np.maximum(0., np.square(L - Lt) - 4 * np.square(Lt) * hsq)) -
-         L + Lt) / (2 * np.pi * np.square(Lt) * hsq),
-        axis=1)
-
-    if p < n:
-        # Eq.(4.3)
-        dtilde = lam / (np.square(np.pi * c * lam * ftilde) +
-                        np.square(1. - c - np.pi * c * lam * Hftilde))
-    else:
-        # Eq.(C.8)
-        Hftilde0 = (1. - np.sqrt(1. - 4. * hsq)) / \
-            (2. * np.pi * hsq) * np.mean(1. / lam)
-        # Eq.(C.5)
-        dtilde0 = 1. / (np.pi * float(p - n) / n * Hftilde0)
-        # Eq.(C.4)
-        dtilde1 = lam / (np.pi**2 * np.square(lam) *
-                         (np.square(ftilde) + np.square(Hftilde)))
-        dtilde = np.concatenate(
-            (dtilde0 * np.ones((p - n,), dtype=np.float64), dtilde1))
-    # Eq.(4.5)
-    dhat = _pav(dtilde)
-    if isDesending:
-        dhat = np.flip(dhat, 0)
-    return dhat
-
 def direct_nl_shrink(sample_ev, n):
     """Computes direct nonlinear shrinkage."""
     isDesending = np.all(sample_ev[:-1] >= sample_ev[1:])
