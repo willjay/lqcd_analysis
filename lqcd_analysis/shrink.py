@@ -202,7 +202,7 @@ def direct_nl_shrink(sample_ev, n):
     if isDesending:
         sam_ev = np.flip(sample_ev, 0)
     else:
-        sam_ev = sample_ev
+        sam_ev = np.array(sample_ev)
     p = len(sam_ev)
     c = float(p) / n
     lam = sam_ev[max(0, p - n + 1):p]  # non-zero eigenvalues
