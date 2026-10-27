@@ -175,7 +175,7 @@ def nonlinear_shrink(samples, n_eff):
     LOGGER.info('Using effective number of samples n=%d.', n_eff)
     corr = gv.evalcorr(gv.dataset.avg_data(samples))
     # Decompose into eigenvalues
-    vals, vecs = np.linalg.eig(corr)  # (eigvals, eigvecs)
+    vals, vecs = np.linalg.eigh(corr)  # (eigvals, eigvecs)
     # Sort in descending order
     order = np.argsort(vals)[::-1]
     vals = vals[order]
